@@ -52,11 +52,10 @@ def es_admin():
     return "admin" in session
 
 # =========================
-# ESTILO + HEADER
+# ESTILO + HEADER CENTRADO
 # =========================
 BASE_HTML = """
 <style>
-/* ===== GLOBAL ===== */
 body {
     margin: 0;
     padding: 0;
@@ -64,7 +63,7 @@ body {
     font-family: Arial, Helvetica, sans-serif;
 }
 
-/* ===== HEADER ===== */
+/* HEADER CENTRADO */
 .header {
     position: fixed;
     top: 0;
@@ -74,22 +73,22 @@ body {
     color: white;
     padding: 14px 22px;
     display: flex;
-    justify-content: space-between;
+    flex-direction: column; /* columna para título + botones */
     align-items: center;
-    flex-wrap: wrap; /* permite que los botones bajen si no caben */
     z-index: 1000;
 }
 
 .header-title {
     font-size: 18px;
     font-weight: bold;
+    margin-bottom: 8px;
 }
 
-/* Contenedor de enlaces/botones */
-.header div:last-child {
+.header div {
     display: flex;
-    flex-wrap: wrap; /* los botones bajan si no entran en la misma fila */
-    gap: 10px;       /* espacio entre botones */
+    flex-wrap: wrap;
+    justify-content: center; /* centra botones */
+    gap: 10px;
 }
 
 .header a {
@@ -105,10 +104,10 @@ body {
     background: rgba(255,255,255,0.2);
 }
 
-/* ===== CONTENEDOR PRINCIPAL ===== */
+/* CONTENEDOR PRINCIPAL */
 .container {
     max-width: 650px;
-    margin: 100px auto 40px auto;
+    margin: 140px auto 40px auto;
     background: white;
     padding: 25px;
     border-radius: 10px;
@@ -119,7 +118,7 @@ h1, h2, h3 {
     text-align: center;
 }
 
-/* ===== FORMULARIOS ===== */
+/* FORMULARIOS */
 input, select, button {
     width: 100%;
     padding: 12px;
@@ -140,7 +139,7 @@ button:hover {
     background: #1e40af;
 }
 
-/* ===== TABLAS ===== */
+/* TABLAS */
 table {
     width: 100%;
     border-collapse: collapse;
@@ -153,25 +152,10 @@ th, td {
     text-align: center;
 }
 
-/* ===== MEDIA QUERY PARA MÓVILES ===== */
+/* MEDIA QUERY MÓVILES */
 @media (max-width: 500px) {
-    .header {
-        flex-direction: column;
-        align-items: flex-start;
-    }
-
-    .header div:last-child {
-        flex-direction: column;
-        width: 100%;
-    }
-
-    .header a {
-        width: 100%;
-        text-align: left;
-    }
-
     .container {
-        margin: 120px 10px 40px 10px;
+        margin: 160px 10px 40px 10px;
         padding: 20px;
         width: auto;
     }
@@ -194,7 +178,7 @@ def render_pagina(contenido):
     return BASE_HTML + header + f"<div class='container'>{contenido}</div>"
 
 # =========================
-# REGISTRO ALUMNO
+# REGISTRO ALUMNO + ASISTENCIA
 # =========================
 @app.route("/", methods=["GET", "POST"])
 def registrar_alumno():
@@ -204,41 +188,46 @@ def registrar_alumno():
         apellido = request.form["apellido"]
         telefono = request.form["telefono"]
         nivel = request.form["nivel"]
+        fecha = request.form["fecha"]
+        turno = request.form["turno"]
 
         try:
             conn = get_db()
             cur = conn.cursor()
 
-            # Control: no permitir más de un alumno por mismo turno
-            # Solo si se agrega fecha y turno en el formulario (opcional)
-            fecha = request.form.get("fecha", None)
-            turno = request.form.get("turno", None)
-            if fecha and turno:
-                cur.execute("""
-                    SELECT 1 FROM asistencias s
-                    JOIN alumnos a ON a.id = s.alumno_id
-                    WHERE s.fecha=? AND s.turno=?
-                """, (fecha, turno))
-                if cur.fetchone():
-                    mensaje = f"Ya hay un alumno registrado para {fecha} a las {turno}."
-                    conn.close()
-                    contenido = f"<h1>Registro Único de Alumno</h1><p style='color:red;'>{mensaje}</p>"
-                    return render_template_string(render_pagina(contenido))
+            # Validar día permitido
+            dia = datetime.strptime(fecha, "%Y-%m-%d").weekday()
+            if dia not in (1,2,3):
+                mensaje = "Solo se permite registro para martes, miércoles o jueves."
+                conn.close()
+                contenido = f"<h1>Registro Único de Alumno</h1><p style='color:red;'>{mensaje}</p>"
+                return render_template_string(render_pagina(contenido))
 
+            # Validar turno único
+            cur.execute("""
+                SELECT 1 FROM asistencias
+                WHERE fecha=? AND turno=?
+            """, (fecha, turno))
+            if cur.fetchone():
+                mensaje = f"Ya hay un alumno registrado para {fecha} a las {turno}."
+                conn.close()
+                contenido = f"<h1>Registro Único de Alumno</h1><p style='color:red;'>{mensaje}</p>"
+                return render_template_string(render_pagina(contenido))
+
+            # Insertar alumno
             cur.execute("""
                 INSERT INTO alumnos (nombre, apellido, telefono, nivel)
                 VALUES (?, ?, ?, ?)
             """, (nombre, apellido, telefono, nivel))
             conn.commit()
 
-            # Si hay fecha y turno, registrar asistencia automáticamente
-            if fecha and turno:
-                alumno_id = cur.lastrowid
-                cur.execute("""
-                    INSERT INTO asistencias (alumno_id, fecha, turno)
-                    VALUES (?, ?, ?)
-                """, (alumno_id, fecha, turno))
-                conn.commit()
+            # Registrar asistencia
+            alumno_id = cur.lastrowid
+            cur.execute("""
+                INSERT INTO asistencias (alumno_id, fecha, turno)
+                VALUES (?, ?, ?)
+            """, (alumno_id, fecha, turno))
+            conn.commit()
 
             mensaje = "Alumno registrado correctamente."
         except sqlite3.IntegrityError:
@@ -258,6 +247,13 @@ def registrar_alumno():
             <option>Inicial</option>
             <option>Intermedio</option>
             <option>Avanzado</option>
+        </select>
+        <input type="date" name="fecha" required>
+        <select name="turno" required>
+            <option value="">Turno</option>
+            <option>12:00 a 14:00</option>
+            <option>14:00 a 16:00</option>
+            <option>16:00 a 18:00</option>
         </select>
         <button>Registrar</button>
     </form>
@@ -304,7 +300,7 @@ def asistencia():
     <h1>Asistencia Laboratorio</h1>
     <p style="color:red;">{error}</p>
     <form method="post"
-          onsubmit="return confirm('¿Confirma la asistencia al laboratorio en el día y horario elegido?\\n\\n• Recordar llevar herramientas personales.\\n• Respetar el horario.\\n• Mantener orden y limpieza.\\n• Avisar por WhatsApp si no puede asistir.')">
+          onsubmit="return confirm('¿Confirma la asistencia al laboratorio en el día y horario elegido?\\n\\n• Recordar llevar las herramientas de uso personal (pinzas, flux, estaño, pegamento, etc).\\n• Respetar el horario elegido ya que luego hay otro alumno en el siguiente turno.\\n• Respetar normas de convivencia del laboratorio (orden y limpieza del puesto de trabajo).\\n• De no poder asistir dar aviso por WhatsApp para liberar el horario.')">
         <input name="telefono" placeholder="Teléfono" required>
         <input type="date" name="fecha" required>
         <select name="turno" required>

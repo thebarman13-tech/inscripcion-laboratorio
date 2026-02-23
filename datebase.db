@@ -1,0 +1,39 @@
+import sqlite3
+
+# Nombre del archivo de base de datos
+DB_PATH = "database.db"
+
+# Conectar a SQLite (lo crea si no existe)
+conn = sqlite3.connect(DB_PATH)
+cur = conn.cursor()
+
+# =========================
+# TABLA ALUMNOS
+# =========================
+cur.execute("""
+CREATE TABLE IF NOT EXISTS alumnos (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    nombre TEXT NOT NULL,
+    apellido TEXT NOT NULL,
+    telefono TEXT UNIQUE NOT NULL,
+    nivel TEXT NOT NULL
+)
+""")
+
+# =========================
+# TABLA ASISTENCIAS
+# =========================
+cur.execute("""
+CREATE TABLE IF NOT EXISTS asistencias (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    alumno_id INTEGER NOT NULL,
+    fecha TEXT NOT NULL,
+    turno TEXT NOT NULL,
+    FOREIGN KEY(alumno_id) REFERENCES alumnos(id)
+)
+""")
+
+conn.commit()
+conn.close()
+
+print(f"Base de datos '{DB_PATH}' creada correctamente con tablas 'alumnos' y 'asistencias'.")

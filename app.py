@@ -56,6 +56,7 @@ def es_admin():
 # =========================
 BASE_HTML = """
 <style>
+/* ===== GLOBAL ===== */
 body {
     margin: 0;
     padding: 0;
@@ -63,6 +64,7 @@ body {
     font-family: Arial, Helvetica, sans-serif;
 }
 
+/* ===== HEADER ===== */
 .header {
     position: fixed;
     top: 0;
@@ -74,6 +76,7 @@ body {
     display: flex;
     justify-content: space-between;
     align-items: center;
+    flex-wrap: wrap; /* permite que los botones bajen si no caben */
     z-index: 1000;
 }
 
@@ -82,13 +85,27 @@ body {
     font-weight: bold;
 }
 
+/* Contenedor de enlaces/botones */
+.header div:last-child {
+    display: flex;
+    flex-wrap: wrap; /* los botones bajan si no entran en la misma fila */
+    gap: 10px;       /* espacio entre botones */
+}
+
 .header a {
     color: white;
     text-decoration: none;
-    margin-left: 15px;
     font-weight: bold;
+    padding: 6px 10px;
+    border-radius: 4px;
+    transition: background 0.2s;
 }
 
+.header a:hover {
+    background: rgba(255,255,255,0.2);
+}
+
+/* ===== CONTENEDOR PRINCIPAL ===== */
 .container {
     max-width: 650px;
     margin: 100px auto 40px auto;
@@ -102,11 +119,13 @@ h1, h2, h3 {
     text-align: center;
 }
 
+/* ===== FORMULARIOS ===== */
 input, select, button {
     width: 100%;
     padding: 12px;
     margin-bottom: 12px;
     font-size: 16px;
+    box-sizing: border-box;
 }
 
 button {
@@ -121,6 +140,7 @@ button:hover {
     background: #1e40af;
 }
 
+/* ===== TABLAS ===== */
 table {
     width: 100%;
     border-collapse: collapse;
@@ -131,6 +151,30 @@ th, td {
     padding: 8px;
     border: 1px solid #ccc;
     text-align: center;
+}
+
+/* ===== MEDIA QUERY PARA MÓVILES ===== */
+@media (max-width: 500px) {
+    .header {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .header div:last-child {
+        flex-direction: column;
+        width: 100%;
+    }
+
+    .header a {
+        width: 100%;
+        text-align: left;
+    }
+
+    .container {
+        margin: 120px 10px 40px 10px;
+        padding: 20px;
+        width: auto;
+    }
 }
 </style>
 """
@@ -156,19 +200,46 @@ def render_pagina(contenido):
 def registrar_alumno():
     mensaje = ""
     if request.method == "POST":
+        nombre = request.form["nombre"]
+        apellido = request.form["apellido"]
+        telefono = request.form["telefono"]
+        nivel = request.form["nivel"]
+
         try:
             conn = get_db()
             cur = conn.cursor()
+
+            # Control: no permitir más de un alumno por mismo turno
+            # Solo si se agrega fecha y turno en el formulario (opcional)
+            fecha = request.form.get("fecha", None)
+            turno = request.form.get("turno", None)
+            if fecha and turno:
+                cur.execute("""
+                    SELECT 1 FROM asistencias s
+                    JOIN alumnos a ON a.id = s.alumno_id
+                    WHERE s.fecha=? AND s.turno=?
+                """, (fecha, turno))
+                if cur.fetchone():
+                    mensaje = f"Ya hay un alumno registrado para {fecha} a las {turno}."
+                    conn.close()
+                    contenido = f"<h1>Registro Único de Alumno</h1><p style='color:red;'>{mensaje}</p>"
+                    return render_template_string(render_pagina(contenido))
+
             cur.execute("""
-            INSERT INTO alumnos (nombre, apellido, telefono, nivel)
-            VALUES (?, ?, ?, ?)
-            """, (
-                request.form["nombre"],
-                request.form["apellido"],
-                request.form["telefono"],
-                request.form["nivel"]
-            ))
+                INSERT INTO alumnos (nombre, apellido, telefono, nivel)
+                VALUES (?, ?, ?, ?)
+            """, (nombre, apellido, telefono, nivel))
             conn.commit()
+
+            # Si hay fecha y turno, registrar asistencia automáticamente
+            if fecha and turno:
+                alumno_id = cur.lastrowid
+                cur.execute("""
+                    INSERT INTO asistencias (alumno_id, fecha, turno)
+                    VALUES (?, ?, ?)
+                """, (alumno_id, fecha, turno))
+                conn.commit()
+
             mensaje = "Alumno registrado correctamente."
         except sqlite3.IntegrityError:
             mensaje = "Este alumno ya está registrado."

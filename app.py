@@ -73,7 +73,7 @@ body {
     color: white;
     padding: 14px 22px;
     display: flex;
-    flex-direction: column; /* columna para título + botones */
+    flex-direction: column;
     align-items: center;
     z-index: 1000;
 }
@@ -87,7 +87,7 @@ body {
 .header div {
     display: flex;
     flex-wrap: wrap;
-    justify-content: center; /* centra botones */
+    justify-content: center;
     gap: 10px;
 }
 
@@ -178,7 +178,7 @@ def render_pagina(contenido):
     return BASE_HTML + header + f"<div class='container'>{contenido}</div>"
 
 # =========================
-# REGISTRO ALUMNO + ASISTENCIA
+# REGISTRO ALUMNO (SOLO DATOS PERSONALES)
 # =========================
 @app.route("/", methods=["GET", "POST"])
 def registrar_alumno():
@@ -188,47 +188,17 @@ def registrar_alumno():
         apellido = request.form["apellido"]
         telefono = request.form["telefono"]
         nivel = request.form["nivel"]
-        fecha = request.form["fecha"]
-        turno = request.form["turno"]
 
         try:
             conn = get_db()
             cur = conn.cursor()
 
-            # Validar día permitido
-            dia = datetime.strptime(fecha, "%Y-%m-%d").weekday()
-            if dia not in (1,2,3):
-                mensaje = "Solo se permite registro para martes, miércoles o jueves."
-                conn.close()
-                contenido = f"<h1>Registro Único de Alumno</h1><p style='color:red;'>{mensaje}</p>"
-                return render_template_string(render_pagina(contenido))
-
-            # Validar turno único
-            cur.execute("""
-                SELECT 1 FROM asistencias
-                WHERE fecha=? AND turno=?
-            """, (fecha, turno))
-            if cur.fetchone():
-                mensaje = f"Ya hay un alumno registrado para {fecha} a las {turno}."
-                conn.close()
-                contenido = f"<h1>Registro Único de Alumno</h1><p style='color:red;'>{mensaje}</p>"
-                return render_template_string(render_pagina(contenido))
-
-            # Insertar alumno
+            # Insertar alumno solo con datos personales
             cur.execute("""
                 INSERT INTO alumnos (nombre, apellido, telefono, nivel)
                 VALUES (?, ?, ?, ?)
             """, (nombre, apellido, telefono, nivel))
             conn.commit()
-
-            # Registrar asistencia
-            alumno_id = cur.lastrowid
-            cur.execute("""
-                INSERT INTO asistencias (alumno_id, fecha, turno)
-                VALUES (?, ?, ?)
-            """, (alumno_id, fecha, turno))
-            conn.commit()
-
             mensaje = "Alumno registrado correctamente."
         except sqlite3.IntegrityError:
             mensaje = "Este alumno ya está registrado."
@@ -247,13 +217,6 @@ def registrar_alumno():
             <option>Inicial</option>
             <option>Intermedio</option>
             <option>Avanzado</option>
-        </select>
-        <input type="date" name="fecha" required>
-        <select name="turno" required>
-            <option value="">Turno</option>
-            <option>12:00 a 14:00</option>
-            <option>14:00 a 16:00</option>
-            <option>16:00 a 18:00</option>
         </select>
         <button>Registrar</button>
     </form>
@@ -281,6 +244,7 @@ def asistencia():
             if not alumno:
                 error = "Alumno no registrado."
             else:
+                # Validar que no tenga asistencia ese día
                 cur.execute("""
                 SELECT 1 FROM asistencias
                 WHERE alumno_id=? AND fecha=?
@@ -289,11 +253,19 @@ def asistencia():
                 if cur.fetchone():
                     error = "Este alumno ya tiene un turno ese día."
                 else:
+                    # Validar turno único
                     cur.execute("""
-                    INSERT INTO asistencias (alumno_id, fecha, turno)
-                    VALUES (?, ?, ?)
-                    """, (alumno[0], fecha, request.form["turno"]))
-                    conn.commit()
+                    SELECT 1 FROM asistencias
+                    WHERE fecha=? AND turno=?
+                    """, (fecha, request.form["turno"]))
+                    if cur.fetchone():
+                        error = "Ya hay un alumno registrado en este turno."
+                    else:
+                        cur.execute("""
+                        INSERT INTO asistencias (alumno_id, fecha, turno)
+                        VALUES (?, ?, ?)
+                        """, (alumno[0], fecha, request.form["turno"]))
+                        conn.commit()
             conn.close()
 
     contenido = f"""

@@ -41,7 +41,7 @@ def init_db():
 init_db()
 
 # -------------------------
-# ESTILO APP
+# ESTILO APP (CSS)
 # -------------------------
 STYLE = """
 <style>
@@ -123,7 +123,7 @@ def login():
     <html>
     <head>
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        {{style}}
+        {{ style | safe }}
     </head>
     <body>
         <div class="app">
@@ -197,7 +197,7 @@ def registro():
     <html>
     <head>
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        {{style}}
+        {{ style | safe }}
     </head>
     <body>
         <div class="app">
@@ -226,8 +226,8 @@ def registro():
                     <button>Registrar</button>
                 </form>
 
-                <p class="success">{{msg}}</p>
-                <p class="error">{{err}}</p>
+                <p class="success">{{ msg }}</p>
+                <p class="error">{{ err }}</p>
             </div>
         </div>
     </body>
@@ -244,12 +244,14 @@ def dashboard():
 
     conn = get_db()
     cur = conn.cursor()
+
     cur.execute("""
     SELECT asistencias.id, fecha, turno, nombre, apellido, telefono, nivel
     FROM asistencias
     JOIN alumnos ON alumnos.id = asistencias.alumno_id
     ORDER BY fecha
     """)
+
     data = cur.fetchall()
     conn.close()
 
@@ -257,13 +259,14 @@ def dashboard():
     <html>
     <head>
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        {{style}}
+        {{ style | safe }}
     </head>
     <body>
         <div class="app">
             <div class="card">
                 <h2>Dashboard</h2>
                 <a href="/logout">Cerrar sesión</a>
+
                 <table>
                     <tr>
                         <th>Fecha</th>
@@ -275,15 +278,22 @@ def dashboard():
                     </tr>
                     {% for a in data %}
                     <tr>
-                        <td>{{a[1]}}</td>
-                        <td>{{a[2]}}</td>
-                        <td>{{a[3]}} {{a[4]}}</td>
-                        <td>{{a[6]}}</td>
-                        <td><a href="https://wa.me/54{{a[5]}}" target="_blank">{{a[5]}}</a></td>
-                        <td><a href="/eliminar/{{a[0]}}">🗑</a></td>
+                        <td>{{ a[1] }}</td>
+                        <td>{{ a[2] }}</td>
+                        <td>{{ a[3] }} {{ a[4] }}</td>
+                        <td>{{ a[6] }}</td>
+                        <td>
+                            <a href="https://wa.me/54{{ a[5] }}" target="_blank">
+                                {{ a[5] }}
+                            </a>
+                        </td>
+                        <td>
+                            <a href="/eliminar/{{ a[0] }}">🗑</a>
+                        </td>
                     </tr>
                     {% endfor %}
                 </table>
+
             </div>
         </div>
     </body>
@@ -291,7 +301,7 @@ def dashboard():
     """, style=STYLE, data=data)
 
 # -------------------------
-# ELIMINAR
+# ELIMINAR ASISTENCIA
 # -------------------------
 @app.route("/eliminar/<int:id>")
 def eliminar(id):

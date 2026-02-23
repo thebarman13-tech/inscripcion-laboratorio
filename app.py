@@ -192,8 +192,6 @@ def registrar_alumno():
         try:
             conn = get_db()
             cur = conn.cursor()
-
-            # Insertar alumno solo con datos personales
             cur.execute("""
                 INSERT INTO alumnos (nombre, apellido, telefono, nivel)
                 VALUES (?, ?, ?, ?)
@@ -310,7 +308,7 @@ def login():
     return render_template_string(render_pagina(contenido))
 
 # =========================
-# DASHBOARD
+# DASHBOARD (DÍAS DEL MÁS CERCANO AL MÁS LEJANO)
 # =========================
 @app.route("/dashboard")
 def dashboard():
@@ -323,7 +321,7 @@ def dashboard():
     SELECT s.id, a.nombre, a.apellido, a.telefono, a.nivel, s.fecha, s.turno
     FROM asistencias s
     JOIN alumnos a ON a.id = s.alumno_id
-    ORDER BY s.fecha DESC
+    ORDER BY date(s.fecha) ASC
     """)
     datos = cur.fetchall()
     conn.close()

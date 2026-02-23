@@ -1,11 +1,14 @@
-from flask import Flask, request, redirect, url_for, render_template_string
+from flask import Flask, request, redirect, url_for, render_template_string, session, Response
 import sqlite3
-from datetime import date
 
 app = Flask(__name__)
+app.secret_key = "clave-secreta"
 
 DB_PATH = "database.db"
 
+# =====================
+# DB
+# =====================
 def get_db():
     return sqlite3.connect(DB_PATH)
 
@@ -37,83 +40,42 @@ def init_db():
 
 init_db()
 
-STYLE = """
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<style>
-* { box-sizing: border-box; font-family: Arial, Helvetica, sans-serif; }
+# =====================
+# LOGIN
+# =====================
+USUARIO_ADMIN = "admin"
+PASSWORD_ADMIN = "1234"
 
-body {
-    margin: 0;
-    background: #0b0f1a;
-    min-height: 100vh;
-    display: flex;
-    justify-content: center;
-    align-items: center;
-}
+def login_requerido():
+    return "admin" in session
 
-.app-container {
-    width: 100%;
-    max-width: 420px;
-    background: #111827;
-    color: white;
-    padding: 24px;
-    border-radius: 18px;
-}
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    error = ""
+    if request.method == "POST":
+        if request.form["usuario"] == USUARIO_ADMIN and request.form["password"] == PASSWORD_ADMIN:
+            session["admin"] = True
+            return redirect("/dashboard")
+        error = "Credenciales incorrectas"
 
-h1, h2 {
-    text-align: center;
-    margin-bottom: 20px;
-}
+    return render_template_string("""
+    <h2>Login Dashboard</h2>
+    <form method="post">
+        <input name="usuario" placeholder="Usuario" required><br><br>
+        <input type="password" name="password" placeholder="Contraseña" required><br><br>
+        <button>Ingresar</button>
+    </form>
+    <p style="color:red;">{{ error }}</p>
+    """, error=error)
 
-input, select, button {
-    width: 100%;
-    padding: 14px;
-    margin-bottom: 14px;
-    font-size: 16px;
-    border-radius: 10px;
-    border: none;
-}
+@app.route("/logout")
+def logout():
+    session.pop("admin", None)
+    return redirect("/login")
 
-input, select {
-    background: #1f2933;
-    color: white;
-}
-
-button {
-    background: #2563eb;
-    color: white;
-    font-weight: bold;
-}
-
-button:active {
-    transform: scale(0.97);
-}
-
-table {
-    width: 100%;
-    border-collapse: collapse;
-    font-size: 14px;
-}
-
-th, td {
-    padding: 8px;
-    border-bottom: 1px solid #374151;
-    text-align: center;
-}
-
-th {
-    background: #1f2933;
-}
-
-@media (max-width: 480px) {
-    .app-container {
-        border-radius: 0;
-        min-height: 100vh;
-    }
-}
-</style>
-"""
-
+# =====================
+# REGISTRO
+# =====================
 @app.route("/", methods=["GET", "POST"])
 def registro():
     if request.method == "POST":
@@ -122,7 +84,7 @@ def registro():
         telefono = request.form["telefono"]
         nivel = request.form["nivel"]
         turno = request.form["turno"]
-        hoy = date.today().isoformat()
+        fecha = request.form["fecha"]
 
         conn = get_db()
         cur = conn.cursor()
@@ -143,90 +105,143 @@ def registro():
             alumno_id = cur.lastrowid
 
         cur.execute("""
-        SELECT 1 FROM asistencias
-        WHERE alumno_id=? AND fecha=?
-        """, (alumno_id, hoy))
-
-        if not cur.fetchone():
-            cur.execute("""
-            INSERT INTO asistencias (alumno_id, fecha, turno)
-            VALUES (?, ?, ?)
-            """, (alumno_id, hoy, turno))
+        INSERT INTO asistencias (alumno_id, fecha, turno)
+        VALUES (?, ?, ?)
+        """, (alumno_id, fecha, turno))
 
         conn.commit()
         conn.close()
-        return redirect(url_for("registro"))
+        return redirect("/")
 
     return render_template_string("""
-    {{ style|safe }}
-    <div class="app-container">
-        <h1>Inscripción Laboratorio</h1>
-        <form method="post">
-            <input name="nombre" placeholder="Nombre" required>
-            <input name="apellido" placeholder="Apellido" required>
-            <input name="telefono" placeholder="Teléfono" required>
+    <h1>Inscripción Laboratorio</h1>
+    <form method="post">
+        <input name="nombre" placeholder="Nombre" required><br><br>
+        <input name="apellido" placeholder="Apellido" required><br><br>
+        <input name="telefono" placeholder="Teléfono" required><br><br>
 
-            <select name="nivel" required>
-                <option value="">Nivel</option>
-                <option>Inicial</option>
-                <option>Intermedio</option>
-                <option>Avanzado</option>
-            </select>
+        <select name="nivel" required>
+            <option value="">Nivel</option>
+            <option>Inicial</option>
+            <option>Intermedio</option>
+            <option>Avanzado</option>
+        </select><br><br>
 
-            <select name="turno" required>
-                <option value="">Turno</option>
-                <option>12:00 a 14:00</option>
-                <option>14:00 a 16:00</option>
-                <option>16:00 a 18:00</option>
-            </select>
+        <input type="date" name="fecha" required><br><br>
 
-            <button type="submit">Confirmar Turno</button>
-        </form>
+        <select name="turno" required>
+            <option value="">Turno</option>
+            <option>12:00 a 14:00</option>
+            <option>14:00 a 16:00</option>
+            <option>16:00 a 18:00</option>
+        </select><br><br>
 
-        <a href="/dashboard" style="color:#93c5fd; text-align:center; display:block; margin-top:10px;">
-            Ir al Dashboard
-        </a>
-    </div>
-    """, style=STYLE)
+        <button>Confirmar</button>
+    </form>
 
+    <br>
+    <a href="/login">Ir al Dashboard</a>
+    """)
+
+# =====================
+# DASHBOARD
+# =====================
 @app.route("/dashboard")
 def dashboard():
+    if not login_requerido():
+        return redirect("/login")
+
     conn = get_db()
     cur = conn.cursor()
 
     cur.execute("""
-    SELECT a.nombre, a.apellido, a.telefono, a.nivel,
-           s.fecha, s.turno
+    SELECT s.id, s.fecha, a.nombre, a.apellido, a.telefono, a.nivel, s.turno
     FROM asistencias s
     JOIN alumnos a ON a.id = s.alumno_id
     ORDER BY s.fecha DESC
     """)
-
-    datos = cur.fetchall()
+    filas = cur.fetchall()
     conn.close()
 
+    datos = {}
+    for f in filas:
+        datos.setdefault(f[1], []).append(f)
+
     return render_template_string("""
-    {{ style|safe }}
-    <div class="app-container">
-        <h2>Dashboard</h2>
-        <table>
+    <h2>Dashboard</h2>
+    <a href="/exportar">Exportar CSV</a> |
+    <a href="/logout">Cerrar sesión</a><br><br>
+
+    {% for fecha, items in datos.items() %}
+        <h3>📅 {{ fecha }}</h3>
+        <table border="1" cellpadding="6">
             <tr>
                 <th>Alumno</th>
+                <th>Teléfono</th>
                 <th>Nivel</th>
-                <th>Fecha</th>
                 <th>Turno</th>
+                <th>Acción</th>
             </tr>
-            {% for d in datos %}
+            {% for i in items %}
             <tr>
-                <td>{{ d[0] }} {{ d[1] }}</td>
-                <td>{{ d[3] }}</td>
-                <td>{{ d[4] }}</td>
-                <td>{{ d[5] }}</td>
+                <td>{{ i[2] }} {{ i[3] }}</td>
+                <td>{{ i[4] }}</td>
+                <td>{{ i[5] }}</td>
+                <td>{{ i[6] }}</td>
+                <td>
+                    <a href="/eliminar/{{ i[0] }}" onclick="return confirm('¿Eliminar asistencia?')">
+                        ❌
+                    </a>
+                </td>
             </tr>
             {% endfor %}
-        </table>
-    </div>
-    """, datos=datos, style=STYLE)
+        </table><br>
+    {% endfor %}
+    """, datos=datos)
+
+# =====================
+# ELIMINAR ASISTENCIA
+# =====================
+@app.route("/eliminar/<int:id>")
+def eliminar(id):
+    if not login_requerido():
+        return redirect("/login")
+
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("DELETE FROM asistencias WHERE id=?", (id,))
+    conn.commit()
+    conn.close()
+    return redirect("/dashboard")
+
+# =====================
+# EXPORTAR CSV
+# =====================
+@app.route("/exportar")
+def exportar():
+    if not login_requerido():
+        return redirect("/login")
+
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("""
+    SELECT a.nombre, a.apellido, a.telefono, a.nivel, s.fecha, s.turno
+    FROM asistencias s
+    JOIN alumnos a ON a.id = s.alumno_id
+    """)
+    filas = cur.fetchall()
+    conn.close()
+
+    def generar():
+        yield "Nombre,Apellido,Telefono,Nivel,Fecha,Turno\n"
+        for f in filas:
+            yield ",".join(f) + "\n"
+
+    return Response(
+        generar(),
+        mimetype="text/csv",
+        headers={"Content-Disposition": "attachment;filename=asistencias.csv"}
+    )
 
 if __name__ == "__main__":
     app.run()

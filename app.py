@@ -6,7 +6,6 @@ import io
 
 app = Flask(__name__)
 app.secret_key = "clave-secreta-segura"
-
 DB = "database.db"
 
 # -------------------- ESTILO --------------------
@@ -32,6 +31,7 @@ body {
     margin-bottom: 20px;
 }
 h2 { text-align: center; }
+
 input, select, button {
     width: 100%;
     padding: 14px;
@@ -40,23 +40,18 @@ input, select, button {
     border-radius: 10px;
     border: 1px solid #ccc;
 }
+
 button {
     background: #2563eb;
     color: white;
     border: none;
     font-weight: bold;
 }
-.levels label {
-    display: flex;
-    align-items: center;
-    margin-bottom: 8px;
-}
-.levels input {
-    margin-right: 10px;
-}
+
 .level-Inicial { background:#dbeafe; }
 .level-Intermedio { background:#fde68a; }
 .level-Avanzado { background:#fecaca; }
+
 table {
     width: 100%;
     font-size: 14px;
@@ -66,7 +61,41 @@ th, td {
     padding: 6px;
     border-bottom: 1px solid #ddd;
 }
-a { text-decoration: none; }
+
+/* ---------- MODAL ---------- */
+
+.modal {
+    display: none;
+    position: fixed;
+    z-index: 1000;
+    left: 0; top: 0;
+    width: 100%; height: 100%;
+    background: rgba(0,0,0,0.7);
+}
+.modal-content {
+    background: white;
+    color: black;
+    margin: 10% auto;
+    padding: 20px;
+    border-radius: 14px;
+    max-width: 420px;
+}
+.modal-content h3 {
+    margin-top: 0;
+}
+.modal-buttons {
+    display: flex;
+    gap: 10px;
+}
+.modal-buttons button {
+    flex: 1;
+}
+.cancel {
+    background: #9ca3af;
+}
+.confirm {
+    background: #16a34a;
+}
 </style>
 """
 
@@ -95,11 +124,9 @@ def init_db():
         alumno_id INTEGER,
         fecha TEXT,
         turno TEXT,
-        FOREIGN KEY(alumno_id) REFERENCES alumnos(id),
         UNIQUE(alumno_id, fecha)
     )
     """)
-
     conn.commit()
     conn.close()
 
@@ -110,7 +137,7 @@ init_db()
 @app.route("/")
 def home():
     return render_template_string("""
-    {{ style|safe }}
+    {{style|safe}}
     <div class="app">
         <div class="card">
             <h2>Inscripciones</h2>
@@ -126,24 +153,23 @@ def home():
 @app.route("/alumno", methods=["GET","POST"])
 def alumno():
     if request.method == "POST":
-        nombre = request.form["nombre"].title()
-        apellido = request.form["apellido"].title()
-        telefono = request.form["telefono"]
-        nivel = request.form["nivel"]
-
         conn = get_db()
         cur = conn.cursor()
         cur.execute("""
-            INSERT OR IGNORE INTO alumnos (nombre, apellido, telefono, nivel)
-            VALUES (?,?,?,?)
-        """,(nombre,apellido,telefono,nivel))
+        INSERT OR IGNORE INTO alumnos (nombre,apellido,telefono,nivel)
+        VALUES (?,?,?,?)
+        """, (
+            request.form["nombre"].title(),
+            request.form["apellido"].title(),
+            request.form["telefono"],
+            request.form["nivel"]
+        ))
         conn.commit()
         conn.close()
-
         return redirect("/")
 
     return render_template_string("""
-    {{ style|safe }}
+    {{style|safe}}
     <div class="app">
         <div class="card">
             <h2>Inscripción única alumno</h2>
@@ -152,11 +178,9 @@ def alumno():
                 <input name="apellido" placeholder="Apellido" required>
                 <input name="telefono" placeholder="Teléfono" required>
 
-                <div class="levels">
-                    <label><input type="radio" name="nivel" value="Inicial" required> Inicial</label>
-                    <label><input type="radio" name="nivel" value="Intermedio"> Intermedio</label>
-                    <label><input type="radio" name="nivel" value="Avanzado"> Avanzado</label>
-                </div>
+                <label><input type="radio" name="nivel" value="Inicial" required> Inicial</label>
+                <label><input type="radio" name="nivel" value="Intermedio"> Intermedio</label>
+                <label><input type="radio" name="nivel" value="Avanzado"> Avanzado</label>
 
                 <button>Registrar alumno</button>
             </form>
@@ -164,12 +188,11 @@ def alumno():
     </div>
     """, style=STYLE)
 
-# -------------------- LABORATORIO --------------------
+# -------------------- LABORATORIO (CON MODAL) --------------------
 
 @app.route("/laboratorio", methods=["GET","POST"])
 def laboratorio():
     mensaje = ""
-
     if request.method == "POST":
         telefono = request.form["telefono"]
         turno = request.form["turno"]
@@ -177,7 +200,6 @@ def laboratorio():
 
         conn = get_db()
         cur = conn.cursor()
-
         cur.execute("SELECT id FROM alumnos WHERE telefono=?", (telefono,))
         alumno = cur.fetchone()
 
@@ -186,8 +208,8 @@ def laboratorio():
         else:
             try:
                 cur.execute("""
-                    INSERT INTO asistencias (alumno_id, fecha, turno)
-                    VALUES (?,?,?)
+                INSERT INTO asistencias (alumno_id, fecha, turno)
+                VALUES (?,?,?)
                 """,(alumno[0],hoy,turno))
                 conn.commit()
                 mensaje = "Asistencia registrada"
@@ -197,134 +219,63 @@ def laboratorio():
         conn.close()
 
     return render_template_string("""
-    {{ style|safe }}
+    {{style|safe}}
     <div class="app">
         <div class="card">
             <h2>Inscripción Laboratorio</h2>
-            <form method="post">
-                <input name="telefono" placeholder="Teléfono" required>
-                <select name="turno" required>
+
+            <form id="formLab" method="post">
+                <input name="telefono" id="telefono" placeholder="Teléfono" required>
+                <select name="turno" id="turno" required>
                     <option value="">Turno</option>
                     <option>10 a 12</option>
                     <option>14 a 16</option>
                     <option>16 a 18</option>
                 </select>
-                <button>Registrar</button>
+                <button type="button" onclick="openModal()">Registrar</button>
             </form>
+
             <p>{{mensaje}}</p>
         </div>
     </div>
+
+    <!-- MODAL -->
+    <div class="modal" id="modal">
+        <div class="modal-content">
+            <h3>Confirmación</h3>
+            <p id="textoConfirmacion"></p>
+            <div class="modal-buttons">
+                <button class="cancel" onclick="closeModal()">Cancelar</button>
+                <button class="confirm" onclick="confirmar()">Confirmar</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+    function openModal(){
+        let turno = document.getElementById("turno").value;
+        if(!turno){ alert("Seleccione un turno"); return; }
+
+        let hoy = new Date().toLocaleDateString();
+        document.getElementById("textoConfirmacion").innerHTML = `
+        ¿Confirma la asistencia al laboratorio el día <b>${hoy}</b> a la hora <b>${turno}</b>?<br><br>
+        • Recordar llevar las herramientas de uso personal.<br>
+        • Respetar el horario elegido.<br>
+        • Respetar normas del laboratorio.<br>
+        • Avisar por WhatsApp si no puede asistir.
+        `;
+        document.getElementById("modal").style.display = "block";
+    }
+
+    function closeModal(){
+        document.getElementById("modal").style.display = "none";
+    }
+
+    function confirmar(){
+        document.getElementById("formLab").submit();
+    }
+    </script>
     """, style=STYLE, mensaje=mensaje)
-
-# -------------------- LOGIN --------------------
-
-@app.route("/login", methods=["GET","POST"])
-def login():
-    if request.method == "POST":
-        if request.form["user"]=="admin" and request.form["pass"]=="1234":
-            session["admin"]=True
-            return redirect("/dashboard")
-    return render_template_string("""
-    {{ style|safe }}
-    <div class="app">
-        <div class="card">
-            <h2>Login</h2>
-            <form method="post">
-                <input name="user" placeholder="Usuario">
-                <input type="password" name="pass" placeholder="Contraseña">
-                <button>Entrar</button>
-            </form>
-        </div>
-    </div>
-    """, style=STYLE)
-
-# -------------------- DASHBOARD --------------------
-
-@app.route("/dashboard")
-def dashboard():
-    if not session.get("admin"):
-        return redirect("/login")
-
-    conn = get_db()
-    df = pd.read_sql("""
-        SELECT a.id, al.nombre, al.apellido, al.telefono, al.nivel,
-               a.fecha, a.turno
-        FROM asistencias a
-        JOIN alumnos al ON a.alumno_id = al.id
-        ORDER BY a.fecha DESC
-    """, conn)
-    conn.close()
-
-    rows = ""
-    for _,r in df.iterrows():
-        rows += f"""
-        <tr class='level-{r.nivel}'>
-            <td>{r.nombre}</td>
-            <td>{r.apellido}</td>
-            <td>{r.telefono}</td>
-            <td>{r.nivel}</td>
-            <td>{r.fecha}</td>
-            <td>{r.turno}</td>
-            <td><a href="/delete/{r.id}">❌</a></td>
-        </tr>
-        """
-
-    return render_template_string("""
-    {{ style|safe }}
-    <div class="app">
-        <div class="card">
-            <h2>Dashboard</h2>
-            <a href="/export"><button>⬇ Exportar Excel</button></a>
-            <table>
-                <tr>
-                    <th>Nombre</th><th>Apellido</th><th>Tel</th>
-                    <th>Nivel</th><th>Fecha</th><th>Turno</th><th></th>
-                </tr>
-                {{rows|safe}}
-            </table>
-        </div>
-    </div>
-    """, style=STYLE, rows=rows)
-
-# -------------------- DELETE --------------------
-
-@app.route("/delete/<int:id>")
-def delete(id):
-    if not session.get("admin"):
-        return redirect("/login")
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute("DELETE FROM asistencias WHERE id=?", (id,))
-    conn.commit()
-    conn.close()
-    return redirect("/dashboard")
-
-# -------------------- EXPORT --------------------
-
-@app.route("/export")
-def export():
-    if not session.get("admin"):
-        return redirect("/login")
-
-    conn = get_db()
-    df = pd.read_sql("""
-        SELECT al.nombre, al.apellido, al.telefono, al.nivel,
-               a.fecha, a.turno
-        FROM asistencias a
-        JOIN alumnos al ON a.alumno_id = al.id
-    """, conn)
-    conn.close()
-
-    output = io.BytesIO()
-    df.to_excel(output, index=False)
-    output.seek(0)
-
-    return send_file(
-        output,
-        as_attachment=True,
-        download_name="asistencias.xlsx",
-        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    )
 
 # --------------------
 

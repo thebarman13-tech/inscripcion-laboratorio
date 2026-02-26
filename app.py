@@ -57,71 +57,16 @@ def es_admin():
 # =========================
 BASE_HTML = """
 <style>
-body {
-    margin: 0;
-    background: #f2f2f2;
-    font-family: Arial;
-}
-
-.header {
-    position: fixed;
-    top: 0;
-    width: 100%;
-    background: #1e3a8a;
-    color: white;
-    padding: 15px;
-    text-align: center;
-    z-index: 1000;
-}
-
-.header a {
-    color: white;
-    margin: 0 15px;
-    font-size: 30px;
-    font-weight: bold;
-    text-decoration: none;
-}
-
-.container 
-input, select, button {
-    width: 90%;
-    box-sizing: border-box;
-    padding: 16px;
-    margin-buttom: 16px;
-    border-radius: 8px;
-}
-
-h1, h2, h3 {
-    text-align: center;
-}
-
-button {
-    width: 100%;
-    padding: 14px;
-    font-size: 18px;
-    margin-bottom: 14px;
-    background: #2563eb;
-    color: white;
-    border: none;
-    border-radius: 8px;
-    cursor: pointer;
-}
-
-button:hover {
-    background: #1e40af;
-}
-
-table {
-    width: 100%;
-    border-collapse: collapse;
-    margin-top: 15px;
-}
-
-th, td {
-    padding: 10px;
-    border: 1px solid #ccc;
-    text-align: center;
-}
+body { background:#f2f2f2; font-family:Arial; font-size:18px; }
+.header { background:#2563eb; color:white; padding:16px; text-align:center; }
+.header a { color:white; font-weight:bold; margin:0 15px; text-decoration:none; }
+.container { max-width:900px; margin:40px auto; background:white; padding:30px; border-radius:12px; }
+h1,h2,h3 { text-align:center; }
+input,select,button { width:100%; padding:14px; font-size:18px; margin-bottom:14px; }
+button { background:#2563eb; color:white; border:none; border-radius:8px; }
+table { width:100%; border-collapse:collapse; margin-top:20px; }
+th,td { border:1px solid #ccc; padding:10px; text-align:center; }
+.agotado { color:red; font-weight:bold; }
 </style>
 """
 
@@ -129,7 +74,7 @@ def header_publico():
     return """
     <div class="header">
         🔧 Laboratorio de Electrónica<br><br>
-        <a href="/registro">🧑 Registro</a>
+        <a href="/">🧑 Registro</a>
         <a href="/asistencia">🧪 Asistencia</a>
         <a href="/login">🔐 Admin</a>
     </div>
@@ -138,12 +83,12 @@ def header_publico():
 def header_admin():
     return """
     <div class="header">
-        📊 Dashboard Administrador<br><br>
-        <a href="/dashboard">🧪 Asistencias</a>
-        <a href="/alumnos">🧑 Alumnos</a>
+        <a href="/dashboard">📊 Dashboard</a>
+        <a href="/alumnos">👥 Alumnos</a>
         <a href="/logout">🚪 Salir</a>
     </div>
     """
+
 
 # =========================
 # RUTAS PÚBLICAS

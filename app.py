@@ -303,6 +303,7 @@ def eliminar_alumno(id):
     conn.close()
 
     return redirect("/alumnos")
+
 # =========================
 # ELIMINAR
 # =========================

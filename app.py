@@ -53,18 +53,14 @@ def es_admin():
     return session.get("admin")
 
 # =========================
-# ESTILOS (ARREGLADOS)
+# ESTILOS
 # =========================
 BASE_HTML = """
 <style>
-* {
-    box-sizing: border-box;
-}
-
 body {
     margin: 0;
     background: #f2f2f2;
-    font-family: Arial, Helvetica, sans-serif;
+    font-family: Arial;
 }
 
 .header {
@@ -99,18 +95,15 @@ h1, h2, h3 {
     text-align: center;
 }
 
-input, select, button {
-    width: 100%;
-    padding: 16px;
-    font-size: 18px;
-    margin-bottom: 16px;
-    border-radius: 8px;
-}
-
 button {
+    width: 100%;
+    padding: 14px;
+    font-size: 18px;
+    margin-bottom: 14px;
     background: #2563eb;
     color: white;
     border: none;
+    border-radius: 8px;
     cursor: pointer;
 }
 
@@ -125,7 +118,7 @@ table {
 }
 
 th, td {
-    padding: 12px;
+    padding: 10px;
     border: 1px solid #ccc;
     text-align: center;
 }
@@ -150,6 +143,7 @@ def header_admin():
         <a href="/alumnos">🧑 Alumnos</a>
         <a href="/logout">🚪 Salir</a>
     </div>
+    """
 
 # =========================
 # RUTAS PÚBLICAS

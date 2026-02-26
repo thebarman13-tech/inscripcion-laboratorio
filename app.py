@@ -83,11 +83,12 @@ body {
 }
 
 .container {
-    max-width: 900px;
-    margin: 160px auto 90px auto;
+    width: 100%;
+    box-sizing: border-box;
     background: white;
-    padding: 80px;
-    border-radius: 35px;
+    padding: 16px;
+    margin-buttom: 16px;
+    border-radius: 8px;
     box-shadow: 0 0 40px rgba(0,0,0,0.2);
 }
 
@@ -96,7 +97,7 @@ h1, h2, h3 {
 }
 
 button {
-    width: 90%;
+    width: 100%;
     padding: 14px;
     font-size: 18px;
     margin-bottom: 14px;

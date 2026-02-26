@@ -82,14 +82,13 @@ body {
     text-decoration: none;
 }
 
-.container input, select, button {
+.container 
+input, select, button {
     width: 100%;
     box-sizing: border-box;
-    background: white;
     padding: 16px;
     margin-buttom: 16px;
     border-radius: 8px;
-    box-shadow: 0 0 40px rgba(0,0,0,0.2);
 }
 
 h1, h2, h3 {

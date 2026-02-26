@@ -81,7 +81,7 @@ body {
     margin: 0 15px;
 }
 .container {
-    max-width: 900px;
+    max-width: 950px;
     margin: 40px auto;
     background: white;
     padding: 30px;
@@ -109,11 +109,16 @@ button:hover {
 table {
     width: 100%;
     border-collapse: collapse;
+    margin-top: 20px;
 }
 th, td {
     border: 1px solid #ccc;
     padding: 10px;
     text-align: center;
+}
+.accion {
+    color: red;
+    font-weight: bold;
 }
 </style>
 """
@@ -121,9 +126,8 @@ th, td {
 def header_publico():
     return """
     <div class="header">
-        🔧 Laboratorio de Electrónica
-        <br><br>
-        <a href="/">🧑 Registro de alumnos</a>
+        🔧 Laboratorio de Electrónica<br><br>
+        <a href="/">🧑 Registro</a>
         <a href="/asistencia">🧪 Asistencia</a>
         <a href="/login">🔐 Admin</a>
     </div>
@@ -139,7 +143,7 @@ def header_admin():
     """
 
 # =========================
-# REGISTRO ÚNICO (HOME)
+# REGISTRO ÚNICO
 # =========================
 @app.route("/", methods=["GET", "POST"])
 def registro():
@@ -181,16 +185,14 @@ def registro():
     </form>
     <br>
     <a href="/asistencia">
-        <button style="background:#16a34a;">🧪 Ir a asistencia al laboratorio</button>
+        <button style="background:#16a34a;">🧪 Ir a asistencia</button>
     </a>
     """
 
-    return render_template_string(
-        BASE_HTML + header_publico() + f"<div class='container'>{contenido}</div>"
-    )
+    return render_template_string(BASE_HTML + header_publico() + f"<div class='container'>{contenido}</div>")
 
 # =========================
-# ASISTENCIA (PÚBLICO)
+# ASISTENCIA
 # =========================
 @app.route("/asistencia", methods=["GET", "POST"])
 def asistencia():
@@ -230,7 +232,7 @@ def asistencia():
                     VALUES (%s, %s, %s)
                     """, (alumno[0], fecha, turno))
                     conn.commit()
-                    mensaje = "Turno confirmado correctamente"
+                    mensaje = "Turno confirmado"
 
         conn.close()
 
@@ -250,12 +252,10 @@ def asistencia():
     </form>
     """
 
-    return render_template_string(
-        BASE_HTML + header_publico() + f"<div class='container'>{contenido}</div>"
-    )
+    return render_template_string(BASE_HTML + header_publico() + f"<div class='container'>{contenido}</div>")
 
 # =========================
-# LOGIN ADMIN
+# LOGIN
 # =========================
 @app.route("/login", methods=["GET", "POST"])
 def login():
@@ -280,7 +280,70 @@ def login():
     """)
 
 # =========================
-# DASHBOARD (ADMIN)
+# ALUMNOS (ADMIN)
+# =========================
+@app.route("/alumnos")
+def alumnos():
+    if not es_admin():
+        return redirect("/login")
+
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("SELECT id, nombre, apellido, telefono, nivel FROM alumnos ORDER BY apellido")
+    alumnos = cur.fetchall()
+    conn.close()
+
+    contenido = "<h1>👥 Alumnos Registrados</h1>"
+    contenido += "<a href='/exportar-alumnos'>📥 Descargar Excel</a>"
+    contenido += """
+    <table>
+        <tr>
+            <th>Alumno</th>
+            <th>Teléfono</th>
+            <th>Nivel</th>
+            <th>Acción</th>
+        </tr>
+    """
+
+    for a in alumnos:
+        contenido += f"""
+        <tr>
+            <td>{a[1]} {a[2]}</td>
+            <td>{a[3]}</td>
+            <td>{a[4]}</td>
+            <td>
+                <a class="accion"
+                   href="/eliminar-alumno/{a[0]}"
+                   onclick="return confirm('⚠️ Esto eliminará el alumno y TODAS sus asistencias.\\n\\n¿Confirmar?')">
+                   🗑️ Eliminar
+                </a>
+            </td>
+        </tr>
+        """
+
+    contenido += "</table>"
+
+    return render_template_string(BASE_HTML + header_admin() + f"<div class='container'>{contenido}</div>")
+
+# =========================
+# ELIMINAR ALUMNO (ADMIN)
+# =========================
+@app.route("/eliminar-alumno/<int:id>")
+def eliminar_alumno(id):
+    if not es_admin():
+        return redirect("/login")
+
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("DELETE FROM asistencias WHERE alumno_id=%s", (id,))
+    cur.execute("DELETE FROM alumnos WHERE id=%s", (id,))
+    conn.commit()
+    conn.close()
+
+    return redirect("/alumnos")
+
+# =========================
+# DASHBOARD
 # =========================
 @app.route("/dashboard")
 def dashboard():
@@ -305,57 +368,16 @@ def dashboard():
     contenido = "<h1>📊 Dashboard – Asistencias</h1>"
     for fecha, lista in por_dia.items():
         contenido += f"<h3>📅 {fecha}</h3><table>"
-        contenido += "<tr><th>Alumno</th><th>Turno</th><th></th></tr>"
+        contenido += "<tr><th>Alumno</th><th>Turno</th></tr>"
         for d in lista:
-            contenido += f"""
-            <tr>
-                <td>{d[1]} {d[2]}</td>
-                <td>{d[4]}</td>
-                <td><a href="/eliminar/{d[0]}" style="color:red;">🗑️</a></td>
-            </tr>
-            """
+            contenido += f"<tr><td>{d[1]} {d[2]}</td><td>{d[4]}</td></tr>"
         contenido += "</table>"
 
-    return render_template_string(
-        BASE_HTML + header_admin() + f"<div class='container'>{contenido}</div>"
-    )
+    return render_template_string(BASE_HTML + header_admin() + f"<div class='container'>{contenido}</div>")
 
-@app.route("/eliminar/<int:id>")
-def eliminar(id):
-    if not es_admin():
-        return redirect("/login")
-
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute("DELETE FROM asistencias WHERE id=%s", (id,))
-    conn.commit()
-    conn.close()
-    return redirect("/dashboard")
-
-@app.route("/alumnos")
-def alumnos():
-    if not es_admin():
-        return redirect("/login")
-
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute("SELECT nombre, apellido, telefono, nivel FROM alumnos ORDER BY apellido")
-    alumnos = cur.fetchall()
-    conn.close()
-
-    contenido = "<h1>👥 Alumnos Registrados</h1>"
-    contenido += "<a href='/exportar-alumnos'>📥 Descargar Excel</a>"
-    contenido += "<table><tr><th>Alumno</th><th>Teléfono</th><th>Nivel</th></tr>"
-
-    for a in alumnos:
-        contenido += f"<tr><td>{a[0]} {a[1]}</td><td>{a[2]}</td><td>{a[3]}</td></tr>"
-
-    contenido += "</table>"
-
-    return render_template_string(
-        BASE_HTML + header_admin() + f"<div class='container'>{contenido}</div>"
-    )
-
+# =========================
+# EXPORTAR
+# =========================
 @app.route("/exportar-alumnos")
 def exportar_alumnos():
     if not es_admin():
@@ -383,6 +405,9 @@ def logout():
     session.pop("admin", None)
     return redirect("/login")
 
+# =========================
+# RUN
+# =========================
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)

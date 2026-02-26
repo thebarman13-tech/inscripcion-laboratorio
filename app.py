@@ -217,16 +217,71 @@ def asistencia():
     return render_template_string(BASE_HTML + header_publico() + f"<div class='container'>{contenido}</div>")
 
 # =========================
-# DASHBOARD / ALUMNOS / EXPORTAR
-# (SIN CAMBIOS)
+# DASHBOARD
 # =========================
-# 👉 se mantienen exactamente igual que antes
+@app.route("/dashboard")
+def dashboard():
+    if not es_admin():
+        return redirect("/login")
+
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("""
+    SELECT s.id, a.nombre, a.apellido, s.fecha, s.turno
+    FROM asistencias s
+    JOIN alumnos a ON a.id = s.alumno_id
+    ORDER BY s.fecha
+    """)
+    datos = cur.fetchall()
+    conn.close()
+
+    por_dia = defaultdict(list)
+    for d in datos:
+        por_dia[d[3]].append(d)
+
+    contenido = "<h1>📊 Dashboard – Asistencias</h1>"
+    for fecha, lista in por_dia.items():
+        contenido += f"<h3>📅 {fecha}</h3><table>"
+        contenido += "<tr><th>Alumno</th><th>Turno</th></tr>"
+        for d in lista:
+            contenido += f"<tr><td>{d[1]} {d[2]}</td><td>{d[4]}</td></tr>"
+        contenido += "</table>"
+
+    return render_template_string(BASE_HTML + header_admin() + f"<div class='container'>{contenido}</div>")
+
+# =========================
+# EXPORTAR
+# =========================
+@app.route("/exportar-alumnos")
+def exportar_alumnos():
+    if not es_admin():
+        return redirect("/login")
+
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("SELECT nombre, apellido, telefono, nivel FROM alumnos")
+    filas = cur.fetchall()
+    conn.close()
+
+    def generar():
+        yield "Nombre,Apellido,Telefono,Nivel\n"
+        for f in filas:
+            yield ",".join(f) + "\n"
+
+    return Response(
+        generar(),
+        mimetype="text/csv",
+        headers={"Content-Disposition": "attachment;filename=alumnos.csv"}
+    )
 
 @app.route("/logout")
 def logout():
     session.pop("admin", None)
     return redirect("/login")
 
+# =========================
+# RUN
+# =========================
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)

@@ -53,14 +53,18 @@ def es_admin():
     return session.get("admin")
 
 # =========================
-# ESTILOS
+# ESTILOS (ARREGLADOS)
 # =========================
 BASE_HTML = """
 <style>
+* {
+    box-sizing: border-box;
+}
+
 body {
     margin: 0;
     background: #f2f2f2;
-    font-family: Arial;
+    font-family: Arial, Helvetica, sans-serif;
 }
 
 .header {
@@ -95,15 +99,18 @@ h1, h2, h3 {
     text-align: center;
 }
 
-button {
+input, select, button {
     width: 100%;
-    padding: 14px;
+    padding: 16px;
     font-size: 18px;
-    margin-bottom: 14px;
+    margin-bottom: 16px;
+    border-radius: 8px;
+}
+
+button {
     background: #2563eb;
     color: white;
     border: none;
-    border-radius: 8px;
     cursor: pointer;
 }
 
@@ -118,7 +125,7 @@ table {
 }
 
 th, td {
-    padding: 10px;
+    padding: 12px;
     border: 1px solid #ccc;
     text-align: center;
 }
@@ -234,7 +241,7 @@ def asistencia():
         <h1>Asistencia al Laboratorio</h1>
         <p style="color:red;text-align:center;">{error}</p>
         <form method="post"
-        oonsubmit="return confirm('¿Confirma la asistencia al laboratorio en el día y horario elegido?\\n\\n• Recordar llevar las herramientas de uso personal (pinzas, flux, estaño, pegamento, etc).\\n• Respetar el horario elegido ya que luego hay otro alumno en el siguiente turno.\\n• Respetar normas de convivencia del laboratorio (orden y limpieza del puesto de trabajo).\\n• De no poder asistir dar aviso por WhatsApp para liberar el horario.')">
+        onsubmit="return confirm('¿Confirma la asistencia?\\n\\n• Llevar herramientas\\n• Respetar horario\\n• Mantener orden y limpieza\\n• Avisar si no puede asistir')">
             <input name="telefono" placeholder="Teléfono" required>
             <input type="date" name="fecha" required>
             <select name="turno" required>

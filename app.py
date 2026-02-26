@@ -77,18 +77,18 @@ body {
 .header a {
     color: white;
     margin: 0 15px;
-    font-size: 18px;
+    font-size: 30px;
     font-weight: bold;
     text-decoration: none;
 }
 
 .container {
     max-width: 900px;
-    margin: 120px auto 40px auto;
+    margin: 160px auto 90px auto;
     background: white;
-    padding: 30px;
-    border-radius: 12px;
-    box-shadow: 0 0 15px rgba(0,0,0,0.2);
+    padding: 80px;
+    border-radius: 35px;
+    box-shadow: 0 0 40px rgba(0,0,0,0.2);
 }
 
 h1, h2, h3 {
@@ -96,10 +96,10 @@ h1, h2, h3 {
 }
 
 button {
-    width: 200%;
-    padding: 24px;
-    font-size: 28px;
-    margin-bottom: 24px;
+    width: 90%;
+    padding: 14px;
+    font-size: 18px;
+    margin-bottom: 14px;
     background: #2563eb;
     color: white;
     border: none;

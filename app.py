@@ -217,6 +217,94 @@ def asistencia():
     return render_template_string(BASE_HTML + header_publico() + f"<div class='container'>{contenido}</div>")
 
 # =========================
+# LOGIN
+# =========================
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    error = ""
+    if request.method == "POST":
+        if request.form["usuario"] == USUARIO_ADMIN and request.form["password"] == PASSWORD_ADMIN:
+            session["admin"] = True
+            return redirect("/dashboard")
+        error = "Credenciales incorrectas"
+
+    return render_template_string(f"""
+    {BASE_HTML}
+    <div class="container" style="max-width:500px;">
+        <h1>🔐 Login Administrador</h1>
+        <p style="color:red;text-align:center;">{error}</p>
+        <form method="post">
+            <input name="usuario" placeholder="Usuario" required>
+            <input type="password" name="password" placeholder="Contraseña" required>
+            <button>Ingresar</button>
+        </form>
+    </div>
+    """)
+
+# =========================
+# ALUMNOS (ADMIN)
+# =========================
+@app.route("/alumnos")
+def alumnos():
+    if not es_admin():
+        return redirect("/login")
+
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("SELECT id, nombre, apellido, telefono, nivel FROM alumnos ORDER BY apellido")
+    alumnos = cur.fetchall()
+    conn.close()
+
+    contenido = "<h1>👥 Alumnos Registrados</h1>"
+    contenido += "<a href='/exportar-alumnos'>📥 Descargar Excel</a>"
+    contenido += """
+    <table>
+        <tr>
+            <th>Alumno</th>
+            <th>Teléfono</th>
+            <th>Nivel</th>
+            <th>Acción</th>
+        </tr>
+    """
+
+    for a in alumnos:
+        contenido += f"""
+        <tr>
+            <td>{a[1]} {a[2]}</td>
+            <td>{a[3]}</td>
+            <td>{a[4]}</td>
+            <td>
+                <a class="accion"
+                   href="/eliminar-alumno/{a[0]}"
+                   onclick="return confirm('⚠️ Esto eliminará el alumno y TODAS sus asistencias.\\n\\n¿Confirmar?')">
+                   🗑️ Eliminar
+                </a>
+            </td>
+        </tr>
+        """
+
+    contenido += "</table>"
+
+    return render_template_string(BASE_HTML + header_admin() + f"<div class='container'>{contenido}</div>")
+
+# =========================
+# ELIMINAR ALUMNO (ADMIN)
+# =========================
+@app.route("/eliminar-alumno/<int:id>")
+def eliminar_alumno(id):
+    if not es_admin():
+        return redirect("/login")
+
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("DELETE FROM asistencias WHERE alumno_id=%s", (id,))
+    cur.execute("DELETE FROM alumnos WHERE id=%s", (id,))
+    conn.commit()
+    conn.close()
+
+    return redirect("/alumnos")
+
+# =========================
 # DASHBOARD
 # =========================
 @app.route("/dashboard")

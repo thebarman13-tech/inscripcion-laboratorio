@@ -368,6 +368,35 @@ def logout():
     return redirect("/login")
 
 # =========================
+# ELIMINAR
+# =========================
+@app.route("/eliminar-asistencia/<int:id>")
+def eliminar_asistencia(id):
+    if not es_admin():
+        return redirect("/login")
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("DELETE FROM asistencias WHERE id=?", (id,))
+    conn.commit()
+    conn.close()
+    return redirect("/dashboard")
+
+@app.route("/eliminar-alumno/<int:id>")
+def eliminar_alumno(id):
+    if not es_admin():
+        return redirect("/login")
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("DELETE FROM alumnos WHERE id=?", (id,))
+    conn.commit()
+    conn.close()
+    return redirect("/alumnos")
+
+@app.route("/logout")
+def logout():
+    session.pop("admin", None)
+    return redirect("/login")
+# =========================
 # RUN
 # =========================
 if __name__ == "__main__":

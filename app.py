@@ -85,7 +85,7 @@ body {
 }
 
 .container {
-    max-width: 900px;
+    max-width: 950px;
     margin: 100px auto 40px auto;
     background: white;
     padding: 25px;
@@ -187,7 +187,7 @@ def registrar_alumno():
     return render_template_string(render_pagina(contenido))
 
 # =========================
-# ASISTENCIA
+# ASISTENCIA (1 POR DÍA)
 # =========================
 @app.route("/asistencia", methods=["GET", "POST"])
 def asistencia():
@@ -196,28 +196,39 @@ def asistencia():
         conn = get_db()
         cur = conn.cursor()
 
-        cur.execute("SELECT id FROM alumnos WHERE telefono=%s", (request.form["telefono"],))
+        telefono = request.form["telefono"]
+        fecha = request.form["fecha"]
+        turno = request.form["turno"]
+
+        cur.execute("SELECT id FROM alumnos WHERE telefono=%s", (telefono,))
         alumno = cur.fetchone()
 
         if not alumno:
             error = "Alumno no registrado."
         else:
+            # 🔒 SOLO 1 ASISTENCIA POR ALUMNO POR DÍA
             cur.execute("""
-            INSERT INTO asistencias (alumno_id, fecha, turno)
-            VALUES (%s, %s, %s)
-            """, (
-                alumno[0],
-                request.form["fecha"],
-                request.form["turno"]
-            ))
-            conn.commit()
+            SELECT 1 FROM asistencias
+            WHERE alumno_id=%s AND fecha=%s
+            """, (alumno[0], fecha))
+
+            if cur.fetchone():
+                error = "Este alumno ya tiene un turno asignado para ese día."
+            else:
+                cur.execute("""
+                INSERT INTO asistencias (alumno_id, fecha, turno)
+                VALUES (%s, %s, %s)
+                """, (alumno[0], fecha, turno))
+                conn.commit()
 
         conn.close()
 
     contenido = f"""
     <h1>Asistencia Laboratorio</h1>
     <p style="color:red;">{error}</p>
-    <form method="post">
+
+    <form method="post"
+          onsubmit="return confirm('¿Confirma la asistencia al laboratorio en el día y horario elegido?\\n\\n• Recordar llevar las herramientas de uso personal (pinzas, flux, estaño, pegamento, etc).\\n• Respetar el horario elegido ya que luego hay otro alumno en el siguiente turno.\\n• Respetar normas de convivencia del laboratorio (orden y limpieza del puesto de trabajo).\\n• De no poder asistir dar aviso por WhatsApp para liberar el horario.')">
         <input name="telefono" placeholder="Teléfono" required>
         <input type="date" name="fecha" required>
         <select name="turno" required>
@@ -232,7 +243,7 @@ def asistencia():
     return render_template_string(render_pagina(contenido))
 
 # =========================
-# DASHBOARD
+# DASHBOARD (POR DÍA)
 # =========================
 @app.route("/dashboard")
 def dashboard():
@@ -242,76 +253,50 @@ def dashboard():
     conn = get_db()
     cur = conn.cursor()
 
-    # Asistencias
     cur.execute("""
     SELECT s.id, a.nombre, a.apellido, a.telefono, a.nivel, s.fecha, s.turno
     FROM asistencias s
     JOIN alumnos a ON a.id = s.alumno_id
-    ORDER BY s.fecha DESC
+    ORDER BY s.fecha ASC
     """)
-    asistencias = cur.fetchall()
-
-    # Alumnos
-    cur.execute("""
-    SELECT nombre, apellido, telefono, nivel
-    FROM alumnos
-    ORDER BY apellido, nombre
-    """)
-    alumnos = cur.fetchall()
+    datos = cur.fetchall()
 
     conn.close()
 
-    contenido = "<h2>📊 Dashboard</h2>"
+    asistencias_por_dia = defaultdict(list)
+    for d in datos:
+        asistencias_por_dia[d[5]].append(d)
 
-    # ===== ASISTENCIAS =====
-    contenido += "<h3>🧪 Asistencias al laboratorio</h3><table>"
-    contenido += """
-    <tr>
-        <th>Alumno</th>
-        <th>Teléfono</th>
-        <th>Nivel</th>
-        <th>Fecha</th>
-        <th>Turno</th>
-        <th>Acciones</th>
-    </tr>
-    """
-    for a in asistencias:
-        contenido += f"""
+    contenido = "<h2>📊 Dashboard por día</h2>"
+
+    for fecha in sorted(asistencias_por_dia.keys()):
+        contenido += f"<h3>📅 {fecha}</h3><table>"
+        contenido += """
         <tr>
-            <td>{a[1]} {a[2]}</td>
-            <td>{a[3]}</td>
-            <td>{a[4]}</td>
-            <td>{a[5]}</td>
-            <td>{a[6]}</td>
-            <td>
-                <a href="/eliminar-asistencia/{a[0]}"
-                   onclick="return confirm('¿Eliminar esta asistencia?')"
-                   style="color:red;font-weight:bold;">
-                   🗑️ Eliminar
-                </a>
-            </td>
+            <th>Alumno</th>
+            <th>Teléfono</th>
+            <th>Nivel</th>
+            <th>Turno</th>
+            <th>Acciones</th>
         </tr>
         """
-    contenido += "</table>"
-
-    # ===== ALUMNOS =====
-    contenido += "<h3>👥 Alumnos registrados</h3><table>"
-    contenido += """
-    <tr>
-        <th>Nombre</th>
-        <th>Teléfono</th>
-        <th>Nivel</th>
-    </tr>
-    """
-    for al in alumnos:
-        contenido += f"""
-        <tr>
-            <td>{al[0]} {al[1]}</td>
-            <td>{al[2]}</td>
-            <td>{al[3]}</td>
-        </tr>
-        """
-    contenido += "</table>"
+        for d in asistencias_por_dia[fecha]:
+            contenido += f"""
+            <tr>
+                <td>{d[1]} {d[2]}</td>
+                <td>{d[3]}</td>
+                <td>{d[4]}</td>
+                <td>{d[6]}</td>
+                <td>
+                    <a href="/eliminar-asistencia/{d[0]}"
+                       onclick="return confirm('¿Eliminar esta asistencia?')"
+                       style="color:red;font-weight:bold;">
+                       🗑️ Eliminar
+                    </a>
+                </td>
+            </tr>
+            """
+        contenido += "</table>"
 
     return render_template_string(render_pagina(contenido))
 

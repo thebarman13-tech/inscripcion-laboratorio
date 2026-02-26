@@ -7,7 +7,16 @@ import os
 app = Flask(__name__)
 app.secret_key = "clave-secreta"
 
-DB_PATH = "database.db"
+# =========================
+# CONFIGURACIÓN
+# =========================
+DB_PATH = "/data/database.db"
+
+CUPOS_POR_TURNO = {
+    "12:00 a 14:00": 1,
+    "14:00 a 16:00": 1,
+    "16:00 a 18:00": 1
+}
 
 # =========================
 # BASE DE DATOS
@@ -53,82 +62,33 @@ def es_admin():
     return session.get("admin")
 
 # =========================
-# ESTILOS (ARREGLADOS)
+# ESTILOS (igual que ahora)
 # =========================
 BASE_HTML = """
 <style>
-* {
-    box-sizing: border-box;
-}
-
-body {
-    margin: 0;
-    background: #f2f2f2;
-    font-family: Arial, Helvetica, sans-serif;
-}
-
+* { box-sizing: border-box; }
+body { margin:0; background:#f2f2f2; font-family:Arial; }
 .header {
-    position: fixed;
-    top: 0;
-    width: 100%;
-    background: #1e3a8a;
-    color: white;
-    padding: 15px;
-    text-align: center;
-    z-index: 1000;
+    position:fixed; top:0; width:100%;
+    background:#1e3a8a; color:white;
+    padding:15px; text-align:center; z-index:1000;
 }
-
-.header a {
-    color: white;
-    margin: 0 15px;
-    font-size: 18px;
-    font-weight: bold;
-    text-decoration: none;
-}
-
+.header a { color:white; margin:0 15px; font-size:18px; font-weight:bold; text-decoration:none; }
 .container {
-    max-width: 900px;
-    margin: 120px auto 40px auto;
-    background: white;
-    padding: 30px;
-    border-radius: 12px;
-    box-shadow: 0 0 15px rgba(0,0,0,0.2);
+    max-width:900px; margin:120px auto 40px;
+    background:white; padding:30px;
+    border-radius:12px; box-shadow:0 0 15px rgba(0,0,0,.2);
 }
-
-h1, h2, h3 {
-    text-align: center;
+h1,h2,h3 { text-align:center; }
+input,select,button {
+    width:100%; padding:16px; font-size:18px;
+    margin-bottom:16px; border-radius:8px;
 }
-
-input, select, button {
-    width: 100%;
-    padding: 16px;
-    font-size: 18px;
-    margin-bottom: 16px;
-    border-radius: 8px;
-}
-
-button {
-    background: #2563eb;
-    color: white;
-    border: none;
-    cursor: pointer;
-}
-
-button:hover {
-    background: #1e40af;
-}
-
-table {
-    width: 100%;
-    border-collapse: collapse;
-    margin-top: 15px;
-}
-
-th, td {
-    padding: 12px;
-    border: 1px solid #ccc;
-    text-align: center;
-}
+button { background:#2563eb; color:white; border:none; cursor:pointer; }
+button:hover { background:#1e40af; }
+table { width:100%; border-collapse:collapse; margin-top:15px; }
+th,td { padding:12px; border:1px solid #ccc; text-align:center; }
+.completo { color:red; font-weight:bold; }
 </style>
 """
 
@@ -147,13 +107,12 @@ def header_admin():
     <div class="header">
         📊 Dashboard Administrador<br><br>
         <a href="/dashboard">🧪 Asistencias</a>
-        <a href="/alumnos">🧑 Alumnos</a>
         <a href="/logout">🚪 Salir</a>
     </div>
     """
 
 # =========================
-# RUTAS PÚBLICAS
+# RUTAS
 # =========================
 @app.route("/")
 def index():
@@ -205,50 +164,56 @@ def registro():
 @app.route("/asistencia", methods=["GET", "POST"])
 def asistencia():
     error = ""
-    if request.method == "POST":
-        fecha = request.form["fecha"]
-        dia = datetime.strptime(fecha, "%Y-%m-%d").weekday()
+    fecha = request.form.get("fecha")
 
-        if dia not in (1, 2, 3):
-            error = "Solo martes, miércoles o jueves."
+    conn = get_db()
+    cur = conn.cursor()
+    cupos = defaultdict(int)
+
+    if fecha:
+        cur.execute("""
+        SELECT turno, COUNT(*) FROM asistencias
+        WHERE fecha=? GROUP BY turno
+        """, (fecha,))
+        for t, c in cur.fetchall():
+            cupos[t] = c
+
+    if request.method == "POST":
+        turno = request.form["turno"]
+        if cupos[turno] >= CUPOS_POR_TURNO[turno]:
+            error = "Ese turno está completo."
         else:
-            conn = get_db()
-            cur = conn.cursor()
             cur.execute("SELECT id FROM alumnos WHERE telefono=?", (request.form["telefono"],))
             alumno = cur.fetchone()
-
             if not alumno:
                 error = "Alumno no registrado."
             else:
                 cur.execute("""
-                SELECT 1 FROM asistencias
-                WHERE alumno_id=? AND fecha=?
-                """, (alumno[0], fecha))
+                INSERT INTO asistencias (alumno_id, fecha, turno)
+                VALUES (?, ?, ?)
+                """, (alumno[0], fecha, turno))
+                conn.commit()
+    conn.close()
 
-                if cur.fetchone():
-                    error = "Este alumno ya tiene turno ese día."
-                else:
-                    cur.execute("""
-                    INSERT INTO asistencias (alumno_id, fecha, turno)
-                    VALUES (?, ?, ?)
-                    """, (alumno[0], fecha, request.form["turno"]))
-                    conn.commit()
-            conn.close()
+    opciones = ""
+    for turno, maximo in CUPOS_POR_TURNO.items():
+        usados = cupos[turno]
+        if usados >= maximo:
+            opciones += f"<option disabled>{turno} (COMPLETO)</option>"
+        else:
+            opciones += f"<option>{turno} ({maximo-usados} libres)</option>"
 
     return render_template_string(f"""
     {BASE_HTML}{header_publico()}
     <div class="container">
         <h1>Asistencia al Laboratorio</h1>
         <p style="color:red;text-align:center;">{error}</p>
-        <form method="post"
-        onsubmit="return confirm('¿Confirma la asistencia?\\n\\n• Llevar herramientas\\n• Respetar horario\\n• Mantener orden y limpieza\\n• Avisar si no puede asistir')">
+        <form method="post">
             <input name="telefono" placeholder="Teléfono" required>
             <input type="date" name="fecha" required>
             <select name="turno" required>
                 <option value="">Turno</option>
-                <option>12:00 a 14:00</option>
-                <option>14:00 a 16:00</option>
-                <option>16:00 a 18:00</option>
+                {opciones}
             </select>
             <button>Confirmar Asistencia</button>
         </form>
@@ -256,32 +221,7 @@ def asistencia():
     """)
 
 # =========================
-# LOGIN
-# =========================
-@app.route("/login", methods=["GET", "POST"])
-def login():
-    error = ""
-    if request.method == "POST":
-        if request.form["usuario"] == USUARIO_ADMIN and request.form["password"] == PASSWORD_ADMIN:
-            session["admin"] = True
-            return redirect("/dashboard")
-        error = "Credenciales incorrectas"
-
-    return render_template_string(f"""
-    {BASE_HTML}{header_publico()}
-    <div class="container" style="max-width:500px;">
-        <h1>🔐 Login Administrador</h1>
-        <p style="color:red;text-align:center;">{error}</p>
-        <form method="post">
-            <input name="usuario" placeholder="Usuario" required>
-            <input type="password" name="password" placeholder="Contraseña" required>
-            <button>Ingresar</button>
-        </form>
-    </div>
-    """)
-
-# =========================
-# DASHBOARD ASISTENCIAS
+# DASHBOARD
 # =========================
 @app.route("/dashboard")
 def dashboard():
@@ -291,7 +231,7 @@ def dashboard():
     conn = get_db()
     cur = conn.cursor()
     cur.execute("""
-    SELECT s.id, a.nombre, a.apellido, a.telefono, a.nivel, s.fecha, s.turno
+    SELECT a.nombre, a.apellido, s.fecha, s.turno
     FROM asistencias s
     JOIN alumnos a ON a.id = s.alumno_id
     ORDER BY s.fecha ASC
@@ -301,85 +241,33 @@ def dashboard():
 
     por_dia = defaultdict(list)
     for d in datos:
-        por_dia[d[5]].append(d)
+        por_dia[d[2]].append(d)
 
-    contenido = "<h1>Asistencias al Laboratorio</h1>"
-
+    contenido = "<h1>Asistencias por Día</h1>"
     for fecha, lista in por_dia.items():
         contenido += f"<h3>📅 {fecha}</h3><table>"
-        contenido += "<tr><th>Alumno</th><th>Teléfono</th><th>Nivel</th><th>Turno</th><th>Acción</th></tr>"
-        for d in lista:
-            contenido += f"""
-            <tr>
-                <td>{d[1]} {d[2]}</td>
-                <td>{d[3]}</td>
-                <td>{d[4]}</td>
-                <td>{d[6]}</td>
-                <td><a href="/eliminar-asistencia/{d[0]}" style="color:red;">🗑️</a></td>
-            </tr>
-            """
+        contenido += "<tr><th>Alumno</th><th>Turno</th></tr>"
+        for l in lista:
+            contenido += f"<tr><td>{l[0]} {l[1]}</td><td>{l[3]}</td></tr>"
         contenido += "</table>"
 
     return render_template_string(BASE_HTML + header_admin() + f"<div class='container'>{contenido}</div>")
 
 # =========================
-# ALUMNOS REGISTRADOS
+# LOGIN / LOGOUT
 # =========================
-@app.route("/alumnos")
-def alumnos():
-    if not es_admin():
-        return redirect("/login")
-
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute("SELECT id, nombre, apellido, telefono, nivel FROM alumnos")
-    alumnos = cur.fetchall()
-    conn.close()
-
-    contenido = "<h1>Alumnos Registrados</h1><table>"
-    contenido += "<tr><th>Nombre</th><th>Teléfono</th><th>Nivel</th><th>Acción</th></tr>"
-    for a in alumnos:
-        contenido += f"""
-        <tr>
-            <td>{a[1]} {a[2]}</td>
-            <td>{a[3]}</td>
-            <td>{a[4]}</td>
-            <td><a href="/eliminar-alumno/{a[0]}" style="color:red;">🗑️</a></td>
-        </tr>
-        """
-    contenido += "</table>"
-
-    return render_template_string(BASE_HTML + header_admin() + f"<div class='container'>{contenido}</div>")
-
-# =========================
-# ELIMINAR
-# =========================
-@app.route("/eliminar-asistencia/<int:id>")
-def eliminar_asistencia(id):
-    if not es_admin():
-        return redirect("/login")
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute("DELETE FROM asistencias WHERE id=?", (id,))
-    conn.commit()
-    conn.close()
-    return redirect("/dashboard")
-
-@app.route("/eliminar-alumno/<int:id>")
-def eliminar_alumno(id):
-    if not es_admin():
-        return redirect("/login")
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute("DELETE FROM alumnos WHERE id=?", (id,))
-    conn.commit()
-    conn.close()
-    return redirect("/alumnos")
+@app.route("/login", methods=["GET","POST"])
+def login():
+    if request.method == "POST":
+        if request.form["usuario"] == USUARIO_ADMIN and request.form["password"] == PASSWORD_ADMIN:
+            session["admin"] = True
+            return redirect("/dashboard")
+    return redirect("/")
 
 @app.route("/logout")
 def logout():
     session.pop("admin", None)
-    return redirect("/login")
+    return redirect("/")
 
 # =========================
 # RUN

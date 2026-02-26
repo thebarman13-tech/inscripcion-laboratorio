@@ -1,50 +1,19 @@
 from flask import Flask, request, redirect, render_template_string, session, Response
-import sqlite3
+import psycopg2
+import os
 from datetime import datetime
 from collections import defaultdict
-
-# GOOGLE SHEETS
-import gspread
-from google.oauth2.service_account import Credentials
 
 app = Flask(__name__)
 app.secret_key = "clave-secreta"
 
-DB_PATH = "database.db"
-GOOGLE_CREDENTIALS = "credenciales_google.json"
-SPREADSHEET_NAME = "Alumnos Laboratorio Electrónica"
-
 # =========================
-# GOOGLE SHEETS CONEXIÓN
+# CONEXIÓN POSTGRESQL
 # =========================
-scopes = [
-    "https://www.googleapis.com/auth/spreadsheets",
-    "https://www.googleapis.com/auth/drive"
-]
+DATABASE_URL = os.environ.get("DATABASE_URL")
 
-creds = Credentials.from_service_account_file(
-    GOOGLE_CREDENTIALS,
-    scopes=scopes
-)
-
-gc = gspread.authorize(creds)
-sheet = gc.open(SPREADSHEET_NAME).sheet1
-
-# Crear encabezados si la planilla está vacía
-if sheet.row_count == 0 or sheet.cell(1, 1).value != "Nombre":
-    sheet.append_row([
-        "Nombre",
-        "Apellido",
-        "Teléfono",
-        "Nivel",
-        "Fecha registro"
-    ])
-
-# =========================
-# BASE DE DATOS
-# =========================
 def get_db():
-    return sqlite3.connect(DB_PATH)
+    return psycopg2.connect(DATABASE_URL, sslmode="require")
 
 def init_db():
     conn = get_db()
@@ -52,20 +21,20 @@ def init_db():
 
     cur.execute("""
     CREATE TABLE IF NOT EXISTS alumnos (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        nombre TEXT,
-        apellido TEXT,
-        telefono TEXT UNIQUE,
-        nivel TEXT
+        id SERIAL PRIMARY KEY,
+        nombre TEXT NOT NULL,
+        apellido TEXT NOT NULL,
+        telefono TEXT UNIQUE NOT NULL,
+        nivel TEXT NOT NULL
     )
     """)
 
     cur.execute("""
     CREATE TABLE IF NOT EXISTS asistencias (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        alumno_id INTEGER,
-        fecha TEXT,
-        turno TEXT
+        id SERIAL PRIMARY KEY,
+        alumno_id INTEGER REFERENCES alumnos(id) ON DELETE CASCADE,
+        fecha DATE NOT NULL,
+        turno TEXT NOT NULL
     )
     """)
 
@@ -111,7 +80,7 @@ body {
 .header nav a {
     color: white;
     text-decoration: none;
-    margin: 0 12px;
+    margin: 0 15px;
     font-weight: bold;
 }
 
@@ -146,6 +115,17 @@ button {
 button:hover {
     background: #1e40af;
 }
+
+table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+th, td {
+    padding: 8px;
+    border: 1px solid #ccc;
+    text-align: center;
+}
 </style>
 """
 
@@ -169,33 +149,22 @@ def render_pagina(contenido):
 def registrar_alumno():
     mensaje = ""
     if request.method == "POST":
-        nombre = request.form["nombre"]
-        apellido = request.form["apellido"]
-        telefono = request.form["telefono"]
-        nivel = request.form["nivel"]
-
         try:
             conn = get_db()
             cur = conn.cursor()
             cur.execute("""
             INSERT INTO alumnos (nombre, apellido, telefono, nivel)
-            VALUES (?, ?, ?, ?)
-            """, (nombre, apellido, telefono, nivel))
+            VALUES (%s, %s, %s, %s)
+            """, (
+                request.form["nombre"],
+                request.form["apellido"],
+                request.form["telefono"],
+                request.form["nivel"]
+            ))
             conn.commit()
             conn.close()
-
-            # GUARDAR EN GOOGLE SHEETS
-            sheet.append_row([
-                nombre,
-                apellido,
-                telefono,
-                nivel,
-                datetime.now().strftime("%Y-%m-%d %H:%M")
-            ])
-
             mensaje = "Alumno registrado correctamente."
-
-        except sqlite3.IntegrityError:
+        except psycopg2.errors.UniqueViolation:
             mensaje = "Este alumno ya está registrado."
 
     contenido = f"""
@@ -217,15 +186,55 @@ def registrar_alumno():
     return render_template_string(render_pagina(contenido))
 
 # =========================
-# ASISTENCIA (sin cambios)
+# ASISTENCIA
 # =========================
 @app.route("/asistencia", methods=["GET", "POST"])
 def asistencia():
-    contenido = "<h2>Asistencia (sin cambios)</h2>"
+    error = ""
+    if request.method == "POST":
+        conn = get_db()
+        cur = conn.cursor()
+
+        cur.execute(
+            "SELECT id FROM alumnos WHERE telefono=%s",
+            (request.form["telefono"],)
+        )
+        alumno = cur.fetchone()
+
+        if not alumno:
+            error = "Alumno no registrado."
+        else:
+            cur.execute("""
+            INSERT INTO asistencias (alumno_id, fecha, turno)
+            VALUES (%s, %s, %s)
+            """, (
+                alumno[0],
+                request.form["fecha"],
+                request.form["turno"]
+            ))
+            conn.commit()
+
+        conn.close()
+
+    contenido = f"""
+    <h1>Asistencia Laboratorio</h1>
+    <p style="color:red;">{error}</p>
+    <form method="post">
+        <input name="telefono" placeholder="Teléfono" required>
+        <input type="date" name="fecha" required>
+        <select name="turno" required>
+            <option value="">Turno</option>
+            <option>12:00 a 14:00</option>
+            <option>14:00 a 16:00</option>
+            <option>16:00 a 18:00</option>
+        </select>
+        <button>Confirmar</button>
+    </form>
+    """
     return render_template_string(render_pagina(contenido))
 
 # =========================
-# LOGIN / DASHBOARD BÁSICO
+# LOGIN / DASHBOARD
 # =========================
 @app.route("/login", methods=["GET", "POST"])
 def login():
@@ -249,7 +258,39 @@ def dashboard():
     if not es_admin():
         return redirect("/login")
 
-    contenido = "<h2>Dashboard</h2><p>Conectado correctamente</p>"
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("""
+    SELECT a.nombre, a.apellido, a.telefono, a.nivel, s.fecha, s.turno
+    FROM asistencias s
+    JOIN alumnos a ON a.id = s.alumno_id
+    ORDER BY s.fecha DESC
+    """)
+    datos = cur.fetchall()
+    conn.close()
+
+    contenido = "<h2>Dashboard</h2><table>"
+    contenido += """
+    <tr>
+        <th>Alumno</th>
+        <th>Teléfono</th>
+        <th>Nivel</th>
+        <th>Fecha</th>
+        <th>Turno</th>
+    </tr>
+    """
+    for d in datos:
+        contenido += f"""
+        <tr>
+            <td>{d[0]} {d[1]}</td>
+            <td>{d[2]}</td>
+            <td>{d[3]}</td>
+            <td>{d[4]}</td>
+            <td>{d[5]}</td>
+        </tr>
+        """
+    contenido += "</table>"
+
     return render_template_string(render_pagina(contenido))
 
 @app.route("/logout")

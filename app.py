@@ -1,7 +1,6 @@
 from flask import Flask, request, redirect, render_template_string, session, Response
 import psycopg2
 import os
-from datetime import datetime
 from collections import defaultdict
 
 app = Flask(__name__)
@@ -53,7 +52,7 @@ def es_admin():
     return "admin" in session
 
 # =========================
-# ESTILO + HEADER
+# ESTILO GENERAL
 # =========================
 BASE_HTML = """
 <style>
@@ -85,11 +84,11 @@ body {
 }
 
 .container {
-    max-width: 950px;
-    margin: 100px auto 40px auto;
+    max-width: 900px;
+    margin: 110px auto 40px auto;
     background: white;
-    padding: 25px;
-    border-radius: 10px;
+    padding: 30px;
+    border-radius: 12px;
     box-shadow: 0 0 15px rgba(0,0,0,0.15);
 }
 
@@ -97,35 +96,61 @@ h1, h2, h3 {
     text-align: center;
 }
 
-input, select, button {
-    width: 100%;
-    padding: 12px;
-    margin-bottom: 12px;
-    font-size: 16px;
+.dashboard-buttons {
+    display: flex;
+    justify-content: center;
+    gap: 40px;
+    margin-top: 40px;
+    flex-wrap: wrap;
 }
 
-button {
+.dashboard-btn {
+    width: 260px;
+    height: 160px;
     background: #2563eb;
     color: white;
-    border: none;
-    border-radius: 6px;
-    cursor: pointer;
+    border-radius: 14px;
+    text-decoration: none;
+    font-size: 20px;
+    font-weight: bold;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    transition: transform 0.2s, background 0.2s;
 }
 
-button:hover {
+.dashboard-btn:hover {
     background: #1e40af;
+    transform: scale(1.05);
+}
+
+.dashboard-btn span {
+    font-size: 48px;
+    margin-bottom: 10px;
 }
 
 table {
     width: 100%;
     border-collapse: collapse;
-    margin-bottom: 25px;
+    margin-top: 20px;
 }
 
 th, td {
     padding: 8px;
     border: 1px solid #ccc;
     text-align: center;
+}
+
+.export-btn {
+    display: inline-block;
+    margin-bottom: 15px;
+    padding: 10px 15px;
+    background: #16a34a;
+    color: white;
+    text-decoration: none;
+    border-radius: 6px;
+    font-weight: bold;
 }
 </style>
 """
@@ -135,7 +160,7 @@ def render_pagina(contenido):
     header = f"""
     <div class="header">
         <nav>
-            {"<a href='/dashboard'>Dashboard</a><a href='/exportar-alumnos'>Exportar alumnos</a><a href='/logout'>Salir</a>"
+            {"<a href='/dashboard'>Dashboard</a><a href='/logout'>Salir</a>"
              if admin else
              "<a href='/'>Registro Alumno</a><a href='/asistencia'>Asistencia</a>"}
         </nav>
@@ -144,115 +169,40 @@ def render_pagina(contenido):
     return BASE_HTML + header + f"<div class='container'>{contenido}</div>"
 
 # =========================
-# REGISTRO ALUMNO
-# =========================
-@app.route("/", methods=["GET", "POST"])
-def registrar_alumno():
-    mensaje = ""
-    if request.method == "POST":
-        try:
-            conn = get_db()
-            cur = conn.cursor()
-            cur.execute("""
-            INSERT INTO alumnos (nombre, apellido, telefono, nivel)
-            VALUES (%s, %s, %s, %s)
-            """, (
-                request.form["nombre"],
-                request.form["apellido"],
-                request.form["telefono"],
-                request.form["nivel"]
-            ))
-            conn.commit()
-            conn.close()
-            mensaje = "Alumno registrado correctamente."
-        except psycopg2.errors.UniqueViolation:
-            mensaje = "Este alumno ya está registrado."
-
-    contenido = f"""
-    <h1>Registro Único de Alumno</h1>
-    <p style="color:green;">{mensaje}</p>
-    <form method="post">
-        <input name="nombre" placeholder="Nombre" required>
-        <input name="apellido" placeholder="Apellido" required>
-        <input name="telefono" placeholder="Teléfono" required>
-        <select name="nivel" required>
-            <option value="">Nivel</option>
-            <option>Inicial</option>
-            <option>Intermedio</option>
-            <option>Avanzado</option>
-        </select>
-        <button>Registrar</button>
-    </form>
-    """
-    return render_template_string(render_pagina(contenido))
-
-# =========================
-# ASISTENCIA (1 POR DÍA)
-# =========================
-@app.route("/asistencia", methods=["GET", "POST"])
-def asistencia():
-    error = ""
-    if request.method == "POST":
-        conn = get_db()
-        cur = conn.cursor()
-
-        telefono = request.form["telefono"]
-        fecha = request.form["fecha"]
-        turno = request.form["turno"]
-
-        cur.execute("SELECT id FROM alumnos WHERE telefono=%s", (telefono,))
-        alumno = cur.fetchone()
-
-        if not alumno:
-            error = "Alumno no registrado."
-        else:
-            # 🔒 SOLO 1 ASISTENCIA POR ALUMNO POR DÍA
-            cur.execute("""
-            SELECT 1 FROM asistencias
-            WHERE alumno_id=%s AND fecha=%s
-            """, (alumno[0], fecha))
-
-            if cur.fetchone():
-                error = "Este alumno ya tiene un turno asignado para ese día."
-            else:
-                cur.execute("""
-                INSERT INTO asistencias (alumno_id, fecha, turno)
-                VALUES (%s, %s, %s)
-                """, (alumno[0], fecha, turno))
-                conn.commit()
-
-        conn.close()
-
-    contenido = f"""
-    <h1>Asistencia Laboratorio</h1>
-    <p style="color:red;">{error}</p>
-
-    <form method="post"
-          onsubmit="return confirm('¿Confirma la asistencia al laboratorio en el día y horario elegido?\\n\\n• Recordar llevar las herramientas de uso personal (pinzas, flux, estaño, pegamento, etc).\\n• Respetar el horario elegido ya que luego hay otro alumno en el siguiente turno.\\n• Respetar normas de convivencia del laboratorio (orden y limpieza del puesto de trabajo).\\n• De no poder asistir dar aviso por WhatsApp para liberar el horario.')">
-        <input name="telefono" placeholder="Teléfono" required>
-        <input type="date" name="fecha" required>
-        <select name="turno" required>
-            <option value="">Turno</option>
-            <option>12:00 a 14:00</option>
-            <option>14:00 a 16:00</option>
-            <option>16:00 a 18:00</option>
-        </select>
-        <button>Confirmar</button>
-    </form>
-    """
-    return render_template_string(render_pagina(contenido))
-
-# =========================
-# DASHBOARD (POR DÍA)
+# DASHBOARD PRINCIPAL
 # =========================
 @app.route("/dashboard")
 def dashboard():
     if not es_admin():
         return redirect("/login")
 
+    contenido = """
+    <h1>📊 Dashboard</h1>
+
+    <div class="dashboard-buttons">
+        <a class="dashboard-btn" href="/dashboard/asistencias">
+            <span>🧪</span>
+            Asistencia<br>al laboratorio
+        </a>
+
+        <a class="dashboard-btn" href="/dashboard/alumnos">
+            <span>👥</span>
+            Alumnos<br>registrados
+        </a>
+    </div>
+    """
+    return render_template_string(render_pagina(contenido))
+
+# =========================
+# DASHBOARD ASISTENCIAS
+# =========================
+@app.route("/dashboard/asistencias")
+def dashboard_asistencias():
+    if not es_admin():
+        return redirect("/login")
+
     conn = get_db()
     cur = conn.cursor()
-
     cur.execute("""
     SELECT s.id, a.nombre, a.apellido, a.telefono, a.nivel, s.fecha, s.turno
     FROM asistencias s
@@ -260,16 +210,15 @@ def dashboard():
     ORDER BY s.fecha ASC
     """)
     datos = cur.fetchall()
-
     conn.close()
 
-    asistencias_por_dia = defaultdict(list)
+    por_dia = defaultdict(list)
     for d in datos:
-        asistencias_por_dia[d[5]].append(d)
+        por_dia[d[5]].append(d)
 
-    contenido = "<h2>📊 Dashboard por día</h2>"
+    contenido = "<h2>🧪 Asistencias al laboratorio</h2>"
 
-    for fecha in sorted(asistencias_por_dia.keys()):
+    for fecha in sorted(por_dia.keys()):
         contenido += f"<h3>📅 {fecha}</h3><table>"
         contenido += """
         <tr>
@@ -277,10 +226,10 @@ def dashboard():
             <th>Teléfono</th>
             <th>Nivel</th>
             <th>Turno</th>
-            <th>Acciones</th>
+            <th>Acción</th>
         </tr>
         """
-        for d in asistencias_por_dia[fecha]:
+        for d in por_dia[fecha]:
             contenido += f"""
             <tr>
                 <td>{d[1]} {d[2]}</td>
@@ -291,7 +240,7 @@ def dashboard():
                     <a href="/eliminar-asistencia/{d[0]}"
                        onclick="return confirm('¿Eliminar esta asistencia?')"
                        style="color:red;font-weight:bold;">
-                       🗑️ Eliminar
+                       🗑️
                     </a>
                 </td>
             </tr>
@@ -301,20 +250,45 @@ def dashboard():
     return render_template_string(render_pagina(contenido))
 
 # =========================
-# ELIMINAR ASISTENCIA
+# DASHBOARD ALUMNOS
 # =========================
-@app.route("/eliminar-asistencia/<int:asistencia_id>")
-def eliminar_asistencia(asistencia_id):
+@app.route("/dashboard/alumnos")
+def dashboard_alumnos():
     if not es_admin():
         return redirect("/login")
 
     conn = get_db()
     cur = conn.cursor()
-    cur.execute("DELETE FROM asistencias WHERE id=%s", (asistencia_id,))
-    conn.commit()
+    cur.execute("""
+    SELECT nombre, apellido, telefono, nivel
+    FROM alumnos
+    ORDER BY apellido, nombre
+    """)
+    alumnos = cur.fetchall()
     conn.close()
 
-    return redirect("/dashboard")
+    contenido = """
+    <h2>👥 Alumnos registrados</h2>
+    <a class="export-btn" href="/exportar-alumnos">📥 Exportar alumnos</a>
+    <table>
+        <tr>
+            <th>Nombre</th>
+            <th>Teléfono</th>
+            <th>Nivel</th>
+        </tr>
+    """
+
+    for a in alumnos:
+        contenido += f"""
+        <tr>
+            <td>{a[0]} {a[1]}</td>
+            <td>{a[2]}</td>
+            <td>{a[3]}</td>
+        </tr>
+        """
+
+    contenido += "</table>"
+    return render_template_string(render_pagina(contenido))
 
 # =========================
 # EXPORTAR ALUMNOS
@@ -342,6 +316,22 @@ def exportar_alumnos():
     )
 
 # =========================
+# ELIMINAR ASISTENCIA
+# =========================
+@app.route("/eliminar-asistencia/<int:asistencia_id>")
+def eliminar_asistencia(asistencia_id):
+    if not es_admin():
+        return redirect("/login")
+
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("DELETE FROM asistencias WHERE id=%s", (asistencia_id,))
+    conn.commit()
+    conn.close()
+
+    return redirect("/dashboard/asistencias")
+
+# =========================
 # LOGIN / LOGOUT
 # =========================
 @app.route("/login", methods=["GET", "POST"])
@@ -365,6 +355,57 @@ def login():
 def logout():
     session.pop("admin", None)
     return redirect("/login")
+
+# =========================
+# ASISTENCIA (PÚBLICO)
+# =========================
+@app.route("/asistencia", methods=["GET", "POST"])
+def asistencia():
+    error = ""
+    if request.method == "POST":
+        conn = get_db()
+        cur = conn.cursor()
+
+        cur.execute("SELECT id FROM alumnos WHERE telefono=%s", (request.form["telefono"],))
+        alumno = cur.fetchone()
+
+        if not alumno:
+            error = "Alumno no registrado."
+        else:
+            cur.execute("""
+            SELECT 1 FROM asistencias
+            WHERE alumno_id=%s AND fecha=%s
+            """, (alumno[0], request.form["fecha"]))
+
+            if cur.fetchone():
+                error = "Este alumno ya tiene un turno ese día."
+            else:
+                cur.execute("""
+                INSERT INTO asistencias (alumno_id, fecha, turno)
+                VALUES (%s, %s, %s)
+                """, (alumno[0], request.form["fecha"], request.form["turno"]))
+                conn.commit()
+
+        conn.close()
+
+    contenido = f"""
+    <h1>Asistencia Laboratorio</h1>
+    <p style="color:red;">{error}</p>
+
+    <form method="post"
+          onsubmit="return confirm('¿Confirma la asistencia al laboratorio en el día y horario elegido?\\n\\n• Recordar llevar las herramientas de uso personal (pinzas, flux, estaño, pegamento, etc).\\n• Respetar el horario elegido ya que luego hay otro alumno en el siguiente turno.\\n• Respetar normas de convivencia del laboratorio (orden y limpieza del puesto de trabajo).\\n• De no poder asistir dar aviso por WhatsApp para liberar el horario.')">
+        <input name="telefono" placeholder="Teléfono" required>
+        <input type="date" name="fecha" required>
+        <select name="turno" required>
+            <option value="">Turno</option>
+            <option>12:00 a 14:00</option>
+            <option>14:00 a 16:00</option>
+            <option>16:00 a 18:00</option>
+        </select>
+        <button>Confirmar</button>
+    </form>
+    """
+    return render_template_string(render_pagina(contenido))
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=10000)

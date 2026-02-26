@@ -1,4 +1,4 @@
-from flask import Flask, request, redirect, render_template_string, session, Response
+from flask import Flask, request, redirect, render_template_string, session
 import sqlite3
 from datetime import datetime
 from collections import defaultdict
@@ -60,7 +60,7 @@ BASE_HTML = """
 body {
     margin: 0;
     background: #f2f2f2;
-    font-family: Arial, Helvetica, sans-serif;
+    font-family: Arial;
 }
 
 .header {
@@ -76,14 +76,14 @@ body {
 
 .header a {
     color: white;
-    margin: 0 12px;
+    margin: 0 15px;
     font-size: 18px;
     font-weight: bold;
     text-decoration: none;
 }
 
 .container {
-    max-width: 700px;
+    max-width: 900px;
     margin: 120px auto 40px auto;
     background: white;
     padding: 30px;
@@ -95,14 +95,11 @@ h1, h2, h3 {
     text-align: center;
 }
 
-input, select, button {
+button {
     width: 100%;
     padding: 14px;
     font-size: 18px;
     margin-bottom: 14px;
-}
-
-button {
     background: #2563eb;
     color: white;
     border: none;
@@ -117,7 +114,7 @@ button:hover {
 table {
     width: 100%;
     border-collapse: collapse;
-    margin-top: 20px;
+    margin-top: 15px;
 }
 
 th, td {
@@ -132,7 +129,7 @@ def header_publico():
     return """
     <div class="header">
         🔧 Laboratorio de Electrónica<br><br>
-        <a href="/">🧑 Registro</a>
+        <a href="/registro">🧑 Registro</a>
         <a href="/asistencia">🧪 Asistencia</a>
         <a href="/login">🔐 Admin</a>
     </div>
@@ -142,21 +139,19 @@ def header_admin():
     return """
     <div class="header">
         📊 Dashboard Administrador<br><br>
-        <a href="/dashboard">📊 Dashboard</a>
+        <a href="/dashboard">🧪 Asistencias</a>
+        <a href="/alumnos">🧑 Alumnos</a>
         <a href="/logout">🚪 Salir</a>
     </div>
     """
 
 # =========================
-# RUTA RAÍZ
+# RUTAS PÚBLICAS
 # =========================
 @app.route("/")
 def index():
     return redirect("/registro")
 
-# =========================
-# REGISTRO ÚNICO DE ALUMNOS
-# =========================
 @app.route("/registro", methods=["GET", "POST"])
 def registro():
     mensaje = ""
@@ -181,8 +176,7 @@ def registro():
             conn.close()
 
     return render_template_string(f"""
-    {BASE_HTML}
-    {header_publico()}
+    {BASE_HTML}{header_publico()}
     <div class="container">
         <h1>Registro Único de Alumno</h1>
         <p style="color:green;text-align:center;">{mensaje}</p>
@@ -201,9 +195,6 @@ def registro():
     </div>
     """)
 
-# =========================
-# ASISTENCIA
-# =========================
 @app.route("/asistencia", methods=["GET", "POST"])
 def asistencia():
     error = ""
@@ -228,7 +219,7 @@ def asistencia():
                 """, (alumno[0], fecha))
 
                 if cur.fetchone():
-                    error = "Este alumno ya tiene un turno ese día."
+                    error = "Este alumno ya tiene turno ese día."
                 else:
                     cur.execute("""
                     INSERT INTO asistencias (alumno_id, fecha, turno)
@@ -238,8 +229,7 @@ def asistencia():
             conn.close()
 
     return render_template_string(f"""
-    {BASE_HTML}
-    {header_publico()}
+    {BASE_HTML}{header_publico()}
     <div class="container">
         <h1>Asistencia al Laboratorio</h1>
         <p style="color:red;text-align:center;">{error}</p>
@@ -271,8 +261,7 @@ def login():
         error = "Credenciales incorrectas"
 
     return render_template_string(f"""
-    {BASE_HTML}
-    {header_publico()}
+    {BASE_HTML}{header_publico()}
     <div class="container" style="max-width:500px;">
         <h1>🔐 Login Administrador</h1>
         <p style="color:red;text-align:center;">{error}</p>
@@ -285,7 +274,7 @@ def login():
     """)
 
 # =========================
-# DASHBOARD
+# DASHBOARD ASISTENCIAS
 # =========================
 @app.route("/dashboard")
 def dashboard():
@@ -294,26 +283,22 @@ def dashboard():
 
     conn = get_db()
     cur = conn.cursor()
-
     cur.execute("""
     SELECT s.id, a.nombre, a.apellido, a.telefono, a.nivel, s.fecha, s.turno
     FROM asistencias s
     JOIN alumnos a ON a.id = s.alumno_id
     ORDER BY s.fecha ASC
     """)
-    asistencias = cur.fetchall()
-
-    cur.execute("SELECT id, nombre, apellido, telefono, nivel FROM alumnos")
-    alumnos = cur.fetchall()
+    datos = cur.fetchall()
     conn.close()
 
-    asistencias_por_dia = defaultdict(list)
-    for a in asistencias:
-        asistencias_por_dia[a[5]].append(a)
+    por_dia = defaultdict(list)
+    for d in datos:
+        por_dia[d[5]].append(d)
 
-    contenido = "<h2>Asistencias al Laboratorio</h2>"
+    contenido = "<h1>Asistencias al Laboratorio</h1>"
 
-    for fecha, lista in asistencias_por_dia.items():
+    for fecha, lista in por_dia.items():
         contenido += f"<h3>📅 {fecha}</h3><table>"
         contenido += "<tr><th>Alumno</th><th>Teléfono</th><th>Nivel</th><th>Turno</th><th>Acción</th></tr>"
         for d in lista:
@@ -328,7 +313,23 @@ def dashboard():
             """
         contenido += "</table>"
 
-    contenido += "<h2>Alumnos Registrados</h2><table>"
+    return render_template_string(BASE_HTML + header_admin() + f"<div class='container'>{contenido}</div>")
+
+# =========================
+# ALUMNOS REGISTRADOS
+# =========================
+@app.route("/alumnos")
+def alumnos():
+    if not es_admin():
+        return redirect("/login")
+
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("SELECT id, nombre, apellido, telefono, nivel FROM alumnos")
+    alumnos = cur.fetchall()
+    conn.close()
+
+    contenido = "<h1>Alumnos Registrados</h1><table>"
     contenido += "<tr><th>Nombre</th><th>Teléfono</th><th>Nivel</th><th>Acción</th></tr>"
     for a in alumnos:
         contenido += f"""
@@ -366,7 +367,7 @@ def eliminar_alumno(id):
     cur.execute("DELETE FROM alumnos WHERE id=?", (id,))
     conn.commit()
     conn.close()
-    return redirect("/dashboard")
+    return redirect("/alumnos")
 
 @app.route("/logout")
 def logout():

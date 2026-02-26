@@ -180,6 +180,7 @@ def asistencia():
         <p style="color:red;text-align:center;">{error}</p>
         <form method="post"
         onsubmit="return confirm('¿Confirma la asistencia al laboratorio en el día y horario elegido?\\n\\n• Recordar llevar las herramientas de uso personal (pinzas, flux, estaño, pegamento, etc).\\n• Respetar el horario elegido ya que luego hay otro alumno en el siguiente turno.\\n• Respetar normas de convivencia del laboratorio (orden y limpieza del puesto de trabajo).\\n• De no poder asistir dar aviso por WhatsApp para liberar el horario.')">
+            <input name="telefono" placeholder="Teléfono" required>
             <input type="date" name="fecha" required>
             <select name="turno" required>
                 <option value="">Turno</option>

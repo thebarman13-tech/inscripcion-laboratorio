@@ -96,10 +96,10 @@ h1, h2, h3 {
 }
 
 button {
-    width: 100%;
-    padding: 14px;
-    font-size: 18px;
-    margin-bottom: 14px;
+    width: 200%;
+    padding: 24px;
+    font-size: 28px;
+    margin-bottom: 24px;
     background: #2563eb;
     color: white;
     border: none;

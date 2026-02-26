@@ -2,6 +2,7 @@ import os
 import psycopg2
 from flask import Flask, request, redirect, render_template_string, session, Response
 from collections import defaultdict
+from datetime import datetime
 
 app = Flask(__name__)
 app.secret_key = "clave-secreta"
@@ -13,6 +14,8 @@ CUPOS_POR_TURNO = {
     "14:00 a 16:00": 1,
     "16:00 a 18:00": 1
 }
+
+DIAS_HABILITADOS = [1, 2, 3]  # Martes, Miércoles, Jueves
 
 # =========================
 # DB
@@ -65,13 +68,13 @@ BASE_HTML = """
 body { background:#f2f2f2; font-family:Arial; font-size:18px; }
 .header { background:#2563eb; color:white; padding:16px; text-align:center; }
 .header a { color:white; font-weight:bold; margin:0 15px; text-decoration:none; }
-.container { max-width:900px; margin:40px auto; background:white; padding:30px; border-radius:12px; }
+.container { max-width:1000px; margin:40px auto; background:white; padding:30px; border-radius:12px; }
 h1,h2,h3 { text-align:center; }
 input,select,button { width:100%; padding:14px; font-size:18px; margin-bottom:14px; }
 button { background:#2563eb; color:white; border:none; border-radius:8px; }
-table { width:100%; border-collapse:collapse; margin-top:20px; }
+table { width:100%; border-collapse:collapse; margin-top:15px; }
 th,td { border:1px solid #ccc; padding:10px; text-align:center; }
-.agotado { color:red; font-weight:bold; }
+.completo { color:red; font-weight:bold; }
 </style>
 """
 
@@ -139,30 +142,33 @@ def registro():
     return render_template_string(BASE_HTML + header_publico() + f"<div class='container'>{contenido}</div>")
 
 # =========================
-# ASISTENCIA (CUPOS VISIBLES)
+# ASISTENCIA (BLOQUEO + CUPOS)
 # =========================
 @app.route("/asistencia", methods=["GET", "POST"])
 def asistencia():
     mensaje = ""
     fecha = request.form.get("fecha")
 
-    # calcular cupos por turno
     cupos_restantes = {}
     if fecha:
-        conn = get_db()
-        cur = conn.cursor()
-        for turno, maximo in CUPOS_POR_TURNO.items():
-            cur.execute("""
-            SELECT COUNT(*) FROM asistencias
-            WHERE fecha=%s AND turno=%s
-            """, (fecha, turno))
-            usados = cur.fetchone()[0]
-            cupos_restantes[turno] = maximo - usados
-        conn.close()
+        dia = datetime.strptime(fecha, "%Y-%m-%d").weekday()
+        if dia not in DIAS_HABILITADOS:
+            mensaje = "Solo se permite asistencia martes, miércoles o jueves"
+        else:
+            conn = get_db()
+            cur = conn.cursor()
+            for turno, maximo in CUPOS_POR_TURNO.items():
+                cur.execute("""
+                SELECT COUNT(*) FROM asistencias
+                WHERE fecha=%s AND turno=%s
+                """, (fecha, turno))
+                usados = cur.fetchone()[0]
+                cupos_restantes[turno] = maximo - usados
+            conn.close()
     else:
         cupos_restantes = CUPOS_POR_TURNO.copy()
 
-    if request.method == "POST" and "telefono" in request.form:
+    if request.method == "POST" and "telefono" in request.form and not mensaje:
         conn = get_db()
         cur = conn.cursor()
 
@@ -194,33 +200,62 @@ def asistencia():
 
         conn.close()
 
-    opciones_turno = ""
-    for turno, restantes in cupos_restantes.items():
+    opciones = ""
+    for turno, maximo in CUPOS_POR_TURNO.items():
+        restantes = cupos_restantes.get(turno, maximo)
         if restantes <= 0:
-            opciones_turno += f"<option disabled>{turno} (AGOTADO)</option>"
+            opciones += f"<option disabled>{turno} (COMPLETO)</option>"
         else:
-            opciones_turno += f"<option>{turno} ({restantes} cupos)</option>"
+            opciones += f"<option>{turno} ({restantes}/{maximo})</option>"
 
     contenido = f"""
     <h1>🧪 Asistencia al Laboratorio</h1>
     <p style="text-align:center;color:red;">{mensaje}</p>
-    <form method="post"
-          onsubmit="return confirm('¿Confirma la asistencia al laboratorio en el día y horario elegido?\\n\\n• Recordar llevar las herramientas de uso personal (pinzas, flux, estaño, pegamento, etc).\\n• Respetar el horario elegido ya que luego hay otro alumno en el siguiente turno.\\n• Respetar normas de convivencia del laboratorio (orden y limpieza del puesto de trabajo).\\n• De no poder asistir dar aviso por WhatsApp para liberar el horario.')">
+    <form method="post">
         <input name="telefono" placeholder="Teléfono" required>
         <input type="date" name="fecha" required value="{fecha or ''}">
-        <select name="turno" required>
-            {opciones_turno}
-        </select>
+        <select name="turno" required>{opciones}</select>
         <button>Confirmar turno</button>
     </form>
     """
     return render_template_string(BASE_HTML + header_publico() + f"<div class='container'>{contenido}</div>")
 
 # =========================
-# DASHBOARD / ALUMNOS / EXPORTAR
-# (SIN CAMBIOS)
+# DASHBOARD (CUPOS VISIBLES)
 # =========================
-# 👉 se mantienen exactamente igual que antes
+@app.route("/dashboard")
+def dashboard():
+    if not es_admin():
+        return redirect("/login")
+
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("""
+    SELECT fecha, turno, COUNT(*)
+    FROM asistencias
+    GROUP BY fecha, turno
+    ORDER BY fecha
+    """)
+    datos = cur.fetchall()
+    conn.close()
+
+    resumen = defaultdict(dict)
+    for fecha, turno, cantidad in datos:
+        resumen[fecha][turno] = cantidad
+
+    contenido = "<h1>📊 Dashboard – Cupos por día</h1>"
+
+    for fecha in resumen:
+        contenido += f"<h3>📅 {fecha}</h3><table>"
+        contenido += "<tr><th>Turno</th><th>Cupos</th></tr>"
+        for turno, maximo in CUPOS_POR_TURNO.items():
+            usados = resumen[fecha].get(turno, 0)
+            estado = "COMPLETO" if usados >= maximo else f"{usados} / {maximo}"
+            clase = "completo" if usados >= maximo else ""
+            contenido += f"<tr><td>{turno}</td><td class='{clase}'>{estado}</td></tr>"
+        contenido += "</table>"
+
+    return render_template_string(BASE_HTML + header_admin() + f"<div class='container'>{contenido}</div>")
 
 @app.route("/logout")
 def logout():

@@ -82,7 +82,7 @@ body {
     text-decoration: none;
 }
 
-.container {
+.container input, select, button {
     width: 100%;
     box-sizing: border-box;
     background: white;

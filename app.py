@@ -85,7 +85,7 @@ body {
 }
 
 .container {
-    max-width: 650px;
+    max-width: 900px;
     margin: 100px auto 40px auto;
     background: white;
     padding: 25px;
@@ -119,6 +119,7 @@ button:hover {
 table {
     width: 100%;
     border-collapse: collapse;
+    margin-bottom: 25px;
 }
 
 th, td {
@@ -134,7 +135,7 @@ def render_pagina(contenido):
     header = f"""
     <div class="header">
         <nav>
-            {"<a href='/dashboard'>Dashboard</a><a href='/logout'>Salir</a>"
+            {"<a href='/dashboard'>Dashboard</a><a href='/exportar-alumnos'>Exportar alumnos</a><a href='/logout'>Salir</a>"
              if admin else
              "<a href='/'>Registro Alumno</a><a href='/asistencia'>Asistencia</a>"}
         </nav>
@@ -195,10 +196,7 @@ def asistencia():
         conn = get_db()
         cur = conn.cursor()
 
-        cur.execute(
-            "SELECT id FROM alumnos WHERE telefono=%s",
-            (request.form["telefono"],)
-        )
+        cur.execute("SELECT id FROM alumnos WHERE telefono=%s", (request.form["telefono"],))
         alumno = cur.fetchone()
 
         if not alumno:
@@ -234,7 +232,132 @@ def asistencia():
     return render_template_string(render_pagina(contenido))
 
 # =========================
-# LOGIN / DASHBOARD
+# DASHBOARD
+# =========================
+@app.route("/dashboard")
+def dashboard():
+    if not es_admin():
+        return redirect("/login")
+
+    conn = get_db()
+    cur = conn.cursor()
+
+    # Asistencias
+    cur.execute("""
+    SELECT s.id, a.nombre, a.apellido, a.telefono, a.nivel, s.fecha, s.turno
+    FROM asistencias s
+    JOIN alumnos a ON a.id = s.alumno_id
+    ORDER BY s.fecha DESC
+    """)
+    asistencias = cur.fetchall()
+
+    # Alumnos
+    cur.execute("""
+    SELECT nombre, apellido, telefono, nivel
+    FROM alumnos
+    ORDER BY apellido, nombre
+    """)
+    alumnos = cur.fetchall()
+
+    conn.close()
+
+    contenido = "<h2>📊 Dashboard</h2>"
+
+    # ===== ASISTENCIAS =====
+    contenido += "<h3>🧪 Asistencias al laboratorio</h3><table>"
+    contenido += """
+    <tr>
+        <th>Alumno</th>
+        <th>Teléfono</th>
+        <th>Nivel</th>
+        <th>Fecha</th>
+        <th>Turno</th>
+        <th>Acciones</th>
+    </tr>
+    """
+    for a in asistencias:
+        contenido += f"""
+        <tr>
+            <td>{a[1]} {a[2]}</td>
+            <td>{a[3]}</td>
+            <td>{a[4]}</td>
+            <td>{a[5]}</td>
+            <td>{a[6]}</td>
+            <td>
+                <a href="/eliminar-asistencia/{a[0]}"
+                   onclick="return confirm('¿Eliminar esta asistencia?')"
+                   style="color:red;font-weight:bold;">
+                   🗑️ Eliminar
+                </a>
+            </td>
+        </tr>
+        """
+    contenido += "</table>"
+
+    # ===== ALUMNOS =====
+    contenido += "<h3>👥 Alumnos registrados</h3><table>"
+    contenido += """
+    <tr>
+        <th>Nombre</th>
+        <th>Teléfono</th>
+        <th>Nivel</th>
+    </tr>
+    """
+    for al in alumnos:
+        contenido += f"""
+        <tr>
+            <td>{al[0]} {al[1]}</td>
+            <td>{al[2]}</td>
+            <td>{al[3]}</td>
+        </tr>
+        """
+    contenido += "</table>"
+
+    return render_template_string(render_pagina(contenido))
+
+# =========================
+# ELIMINAR ASISTENCIA
+# =========================
+@app.route("/eliminar-asistencia/<int:asistencia_id>")
+def eliminar_asistencia(asistencia_id):
+    if not es_admin():
+        return redirect("/login")
+
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("DELETE FROM asistencias WHERE id=%s", (asistencia_id,))
+    conn.commit()
+    conn.close()
+
+    return redirect("/dashboard")
+
+# =========================
+# EXPORTAR ALUMNOS
+# =========================
+@app.route("/exportar-alumnos")
+def exportar_alumnos():
+    if not es_admin():
+        return redirect("/login")
+
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("SELECT nombre, apellido, telefono, nivel FROM alumnos")
+    filas = cur.fetchall()
+    conn.close()
+
+    def generar():
+        yield "Nombre,Apellido,Telefono,Nivel\n"
+        for f in filas:
+            yield ",".join(f) + "\n"
+
+    return Response(
+        generar(),
+        mimetype="text/csv",
+        headers={"Content-Disposition": "attachment;filename=alumnos.csv"}
+    )
+
+# =========================
+# LOGIN / LOGOUT
 # =========================
 @app.route("/login", methods=["GET", "POST"])
 def login():
@@ -251,46 +374,6 @@ def login():
         <button>Ingresar</button>
     </form>
     """
-    return render_template_string(render_pagina(contenido))
-
-@app.route("/dashboard")
-def dashboard():
-    if not es_admin():
-        return redirect("/login")
-
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute("""
-    SELECT a.nombre, a.apellido, a.telefono, a.nivel, s.fecha, s.turno
-    FROM asistencias s
-    JOIN alumnos a ON a.id = s.alumno_id
-    ORDER BY s.fecha DESC
-    """)
-    datos = cur.fetchall()
-    conn.close()
-
-    contenido = "<h2>Dashboard</h2><table>"
-    contenido += """
-    <tr>
-        <th>Alumno</th>
-        <th>Teléfono</th>
-        <th>Nivel</th>
-        <th>Fecha</th>
-        <th>Turno</th>
-    </tr>
-    """
-    for d in datos:
-        contenido += f"""
-        <tr>
-            <td>{d[0]} {d[1]}</td>
-            <td>{d[2]}</td>
-            <td>{d[3]}</td>
-            <td>{d[4]}</td>
-            <td>{d[5]}</td>
-        </tr>
-        """
-    contenido += "</table>"
-
     return render_template_string(render_pagina(contenido))
 
 @app.route("/logout")

@@ -64,6 +64,7 @@ th,td{border:1px solid #ccc;padding:10px;text-align:center}
 .stat h2{margin:0;font-size:28px}
 .stat p{margin:5px 0 0;font-weight:bold}
 
+.pasado{color:#6b7280;font-style:italic}
 .cerrado{color:#6b7280;font-style:italic}
 </style>
 """
@@ -196,19 +197,20 @@ def asistencia():
     """))
 
 # =========================
-# DASHBOARD
+# DASHBOARD (FIX)
 # =========================
 @app.route("/dashboard")
 def dashboard():
     if not es_admin():
         return redirect("/login")
 
-    hoy = date.today()
     ahora = ahora_arg()
+    hoy = date.today()
 
     db = get_db()
     cur = db.cursor()
 
+    # Estadísticas
     cur.execute("SELECT COUNT(*) FROM alumnos")
     total_alumnos = cur.fetchone()[0]
 
@@ -222,13 +224,13 @@ def dashboard():
     dia_mas = dia_mas[0][0] if dia_mas else "—"
     turno_mas = turno_mas[0][0] if turno_mas else "—"
 
+    # 🔧 ACA EL FIX: TRAEMOS TODAS
     cur.execute("""
         SELECT s.id, s.fecha, s.turno, a.nombre, a.apellido
         FROM asistencias s
         JOIN alumnos a ON a.id = s.alumno_id
-        WHERE s.fecha >= %s
-        ORDER BY s.fecha
-    """, (hoy,))
+        ORDER BY s.fecha DESC
+    """)
     rows = cur.fetchall()
     db.close()
 
@@ -249,12 +251,20 @@ def dashboard():
     <a class="boton" href="/exportar-asistencias">📄 Exportar asistencias</a>
     """
 
-    for fecha in sorted(data.keys()):
+    for fecha in sorted(data.keys(), reverse=True):
+        pasado = fecha < hoy
         html += f"<h3>📅 {fecha}</h3><table>"
         html += "<tr><th>Turno</th><th>Estado</th><th>Acción</th></tr>"
 
         for nombre, hora_inicio in TURNOS:
-            if fecha == hoy and ahora.time() >= hora_inicio:
+            if pasado:
+                estado = data[fecha].get(nombre)
+                if estado:
+                    alumno, _ = estado
+                    html += f"<tr class='pasado'><td>{nombre}</td><td>{alumno}</td><td>-</td></tr>"
+                else:
+                    html += f"<tr class='pasado'><td>{nombre}</td><td>—</td><td>-</td></tr>"
+            elif fecha == hoy and ahora.time() >= hora_inicio:
                 html += f"<tr><td>{nombre}</td><td class='cerrado'>Cerrado</td><td>-</td></tr>"
             elif nombre in data[fecha]:
                 alumno, aid = data[fecha][nombre]

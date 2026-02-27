@@ -19,11 +19,13 @@ TURNOS = [
     ("16:00 a 18:00", time(16, 0)),
 ]
 
-DIAS_HABILITADOS = (1, 2, 3)  # mar, mié, jue
+DIAS_HABILITADOS = (1, 2, 3)
 UTC_OFFSET = -3
 
 USUARIO_ADMIN = "DRTECNO"
 PASSWORD_ADMIN = "laboratorio2026"
+
+NIVELES = ["Inicial", "Intermedio", "Avanzado"]
 
 # =========================
 # DB / UTILS
@@ -51,14 +53,11 @@ body{margin:0;background:#f2f2f2;font-family:Arial}
 input,select,button{width:100%;padding:14px;font-size:17px;margin-bottom:14px}
 button{background:#2563eb;color:white;border:none;border-radius:8px}
 
-table{width:100%;border-collapse:collapse}
-th,td{border:1px solid #ccc;padding:10px;text-align:center}
+.boton{display:inline-block;padding:12px 18px;background:#2563eb;color:white;border-radius:8px;text-decoration:none;margin:8px}
 
-.boton{display:inline-block;padding:10px 16px;background:#2563eb;color:white;border-radius:6px;text-decoration:none;margin-bottom:15px}
-
-.nivel-inicial{border-left:6px solid #22c55e;padding-left:12px}
-.nivel-intermedio{border-left:6px solid #3b82f6;padding-left:12px}
-.nivel-avanzado{border-left:6px solid #a855f7;padding-left:12px}
+.nivel-inicial{background:#22c55e}
+.nivel-intermedio{background:#3b82f6}
+.nivel-avanzado{background:#a855f7}
 
 .eliminar{color:red;font-weight:bold;text-decoration:none}
 </style>
@@ -78,110 +77,6 @@ def render_pagina(contenido):
     </div>
     <div class="container">{contenido}</div>
     """
-
-# =========================
-# REGISTRO ÚNICO
-# =========================
-@app.route("/", methods=["GET", "POST"])
-def registro():
-    msg = ""
-    if request.method == "POST":
-        try:
-            db = get_db()
-            cur = db.cursor()
-            cur.execute("""
-                INSERT INTO alumnos (nombre, apellido, telefono, nivel)
-                VALUES (%s,%s,%s,%s)
-            """, (
-                request.form["nombre"],
-                request.form["apellido"],
-                request.form["telefono"],
-                request.form["nivel"]
-            ))
-            db.commit()
-            msg = "Alumno registrado correctamente."
-        except psycopg2.errors.UniqueViolation:
-            msg = "El alumno ya está registrado."
-        finally:
-            db.close()
-
-    return render_template_string(render_pagina(f"""
-    <h1>Registro Único de Alumno</h1>
-    <p style="color:green">{msg}</p>
-    <form method="post">
-        <input name="nombre" placeholder="Nombre" required>
-        <input name="apellido" placeholder="Apellido" required>
-        <input name="telefono" placeholder="Teléfono" required>
-        <select name="nivel" required>
-            <option value="">Nivel</option>
-            <option>Inicial</option>
-            <option>Intermedio</option>
-            <option>Avanzado</option>
-        </select>
-        <button>Registrar Alumno</button>
-    </form>
-    """))
-
-# =========================
-# ASISTENCIA
-# =========================
-@app.route("/asistencia", methods=["GET","POST"])
-def asistencia():
-    error = ""
-    ok = ""
-    hoy = date.today()
-    ahora = ahora_arg()
-
-    if request.method == "POST":
-        fecha = datetime.strptime(request.form["fecha"], "%Y-%m-%d").date()
-        turno = request.form["turno"]
-
-        if fecha.weekday() not in DIAS_HABILITADOS:
-            error = "Solo martes, miércoles y jueves."
-        elif fecha < hoy:
-            error = "No se permiten fechas pasadas."
-        elif fecha == hoy:
-            for t, h in TURNOS:
-                if t == turno and ahora.time() >= h:
-                    error = "Turno cerrado por horario."
-
-        if not error:
-            db = get_db()
-            cur = db.cursor()
-            cur.execute("SELECT id FROM alumnos WHERE telefono=%s", (request.form["telefono"],))
-            alumno = cur.fetchone()
-
-            if not alumno:
-                error = "Alumno no registrado."
-            else:
-                cur.execute(
-                    "SELECT 1 FROM asistencias WHERE fecha=%s AND turno=%s",
-                    (fecha, turno)
-                )
-                if cur.fetchone():
-                    error = "Ese turno ya está ocupado."
-                else:
-                    cur.execute(
-                        "INSERT INTO asistencias (alumno_id, fecha, turno) VALUES (%s,%s,%s)",
-                        (alumno[0], fecha, turno)
-                    )
-                    db.commit()
-                    ok = "Asistencia confirmada correctamente."
-            db.close()
-
-    opciones = "".join(f"<option>{t}</option>" for t,_ in TURNOS)
-
-    return render_template_string(render_pagina(f"""
-    <h1>Asistencia al Laboratorio</h1>
-    <p style="color:red">{error}</p>
-    <p style="color:green">{ok}</p>
-    <form method="post">
-        <input name="telefono" placeholder="Teléfono" required>
-        <input type="date" name="fecha" min="{hoy}" required>
-        <select name="turno" required>{opciones}</select>
-        <button>Confirmar Turno</button>
-    </form>
-    """))
 
 # =========================
 # DASHBOARD
@@ -207,12 +102,12 @@ def dashboard():
         dias[f][t] = (f"{n} {a}", aid)
 
     html = """
-    <h2>Dashboard</h2>
+    <h2>📊 Dashboard</h2>
     <a class="boton" href="/alumnos">👥 Alumnos registrados</a>
     """
 
     for fecha in sorted(dias.keys(), reverse=True):
-        html += f"<h3>📅 {fecha}</h3><table>"
+        html += f"<h3>📅 {fecha}</h3><table border=1 width=100%>"
         html += "<tr><th>Turno</th><th>Alumno</th><th>Acción</th></tr>"
         for t,_ in TURNOS:
             if t in dias[fecha]:
@@ -225,67 +120,75 @@ def dashboard():
     return render_template_string(render_pagina(html))
 
 # =========================
-# HISTORIAL POR NIVEL
+# MENU ALUMNOS
 # =========================
 @app.route("/alumnos")
-def alumnos():
+def alumnos_menu():
     if not es_admin():
         return redirect("/login")
 
-    db = get_db()
-    cur = db.cursor()
-    cur.execute("""
-        SELECT a.id, a.nombre, a.apellido, a.telefono, a.nivel,
-               s.fecha, s.turno
-        FROM alumnos a
-        LEFT JOIN asistencias s ON s.alumno_id = a.id
-        ORDER BY a.nivel, a.apellido, a.nombre, s.fecha
-    """)
-    rows = cur.fetchall()
-    db.close()
-
-    niveles = {"Inicial": [], "Intermedio": [], "Avanzado": []}
-    alumnos_data = {}
-    asistencias = defaultdict(list)
-
-    for aid, n, a, tel, niv, f, t in rows:
-        alumnos_data[aid] = (n, a, tel, niv)
-        if f:
-            asistencias[aid].append((f, t))
-
-    for aid, data in alumnos_data.items():
-        niveles[data[3]].append(aid)
-
     html = """
-    <h2>📘 Alumnos por nivel</h2>
-    <a class="boton" href="/exportar-alumnos">📥 Descargar Excel</a>
+    <h2>📘 Historial de Alumnos</h2>
+    <p>Seleccioná un nivel:</p>
+
+    <a class="boton nivel-inicial" href="/alumnos/Inicial">🟢 Inicial</a>
+    <a class="boton nivel-intermedio" href="/alumnos/Intermedio">🔵 Intermedio</a>
+    <a class="boton nivel-avanzado" href="/alumnos/Avanzado">🟣 Avanzado</a>
     """
-
-    for nivel, clase in [
-        ("Inicial","nivel-inicial"),
-        ("Intermedio","nivel-intermedio"),
-        ("Avanzado","nivel-avanzado")
-    ]:
-        html += f"<h3 class='{clase}'>🎓 {nivel}</h3>"
-        if not niveles[nivel]:
-            html += "<p>Sin alumnos</p>"
-            continue
-
-        for aid in niveles[nivel]:
-            n,a,tel,_ = alumnos_data[aid]
-            hist = asistencias.get(aid, [])
-            html += f"<hr><b>{n} {a}</b><br>📞 {tel}<br>✔ Asistencias: {len(hist)}<ul>"
-            for f,t in hist:
-                html += f"<li>{f} – {t}</li>"
-            html += "</ul>"
 
     return render_template_string(render_pagina(html))
 
 # =========================
-# EXPORT
+# ALUMNOS POR NIVEL
 # =========================
-@app.route("/exportar-alumnos")
-def exportar_alumnos():
+@app.route("/alumnos/<nivel>")
+def alumnos_por_nivel(nivel):
+    if not es_admin():
+        return redirect("/login")
+    if nivel not in NIVELES:
+        return redirect("/alumnos")
+
+    db = get_db()
+    cur = db.cursor()
+    cur.execute("""
+        SELECT a.id, a.nombre, a.apellido, a.telefono,
+               s.fecha, s.turno
+        FROM alumnos a
+        LEFT JOIN asistencias s ON s.alumno_id = a.id
+        WHERE a.nivel=%s
+        ORDER BY a.apellido, a.nombre, s.fecha
+    """, (nivel,))
+    rows = cur.fetchall()
+    db.close()
+
+    alumnos = defaultdict(list)
+    info = {}
+
+    for aid, n, a, tel, f, t in rows:
+        info[aid] = (n, a, tel)
+        if f:
+            alumnos[aid].append((f, t))
+
+    html = f"""
+    <h2>🎓 Nivel {nivel}</h2>
+    <a class="boton" href="/exportar-alumnos/{nivel}">📥 Descargar Excel</a>
+    """
+
+    for aid, datos in info.items():
+        n,a,tel = datos
+        hist = alumnos.get(aid, [])
+        html += f"<hr><b>{n} {a}</b><br>📞 {tel}<br>✔ Asistencias: {len(hist)}<ul>"
+        for f,t in hist:
+            html += f"<li>{f} – {t}</li>"
+        html += "</ul>"
+
+    return render_template_string(render_pagina(html))
+
+# =========================
+# EXPORT POR NIVEL
+# =========================
+@app.route("/exportar-alumnos/<nivel>")
+def exportar_por_nivel(nivel):
     if not es_admin():
         return redirect("/login")
 
@@ -296,8 +199,9 @@ def exportar_alumnos():
                s.fecha, s.turno
         FROM alumnos a
         LEFT JOIN asistencias s ON s.alumno_id = a.id
-        ORDER BY a.nivel, a.apellido, a.nombre
-    """)
+        WHERE a.nivel=%s
+        ORDER BY a.apellido, a.nombre
+    """, (nivel,))
     rows = cur.fetchall()
     db.close()
 
@@ -310,7 +214,7 @@ def exportar_alumnos():
     return Response(
         output.getvalue(),
         mimetype="text/csv",
-        headers={"Content-Disposition":"attachment;filename=alumnos_historial.csv"}
+        headers={"Content-Disposition":f"attachment;filename=alumnos_{nivel}.csv"}
     )
 
 # =========================
@@ -342,10 +246,10 @@ def eliminar_asistencia(aid):
         return redirect("/login")
     db = get_db()
     cur = db.cursor()
-    cur.execute("DELETE FROM asistencias WHERE id=%s", (aid,))
+    cur.execute("DELETE FROM asistencias WHERE id=%s",(aid,))
     db.commit()
     db.close()
     return redirect("/dashboard")
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT",10000)))

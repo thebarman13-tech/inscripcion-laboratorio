@@ -195,7 +195,13 @@ def dashboard():
                 <td>{r[2]}</td>
                 <td>{r[3]} {r[4]}</td>
                 <td>{r[5]}</td>
-                <td><a class="eliminar" href="/eliminar-asistencia/{r[0]}">🗑️</a></td>
+                <td>
+                    <a class="eliminar"
+                       href="/eliminar-asistencia/{r[0]}"
+                       onclick="return confirm('¿Eliminar esta asistencia?')">
+                       🗑️
+                    </a>
+                </td>
             </tr>
             """
         html+="</table>"
@@ -203,7 +209,23 @@ def dashboard():
     return render_template_string(render_pagina(html))
 
 # =========================
-# ALUMNOS (ADMIN)
+# ELIMINAR ASISTENCIA (CORREGIDO)
+# =========================
+@app.route("/eliminar-asistencia/<int:aid>")
+def eliminar_asistencia(aid):
+    if not es_admin():
+        return redirect("/login")
+
+    db = get_db()
+    cur = db.cursor()
+    cur.execute("DELETE FROM asistencias WHERE id=%s", (aid,))
+    db.commit()
+    db.close()
+
+    return redirect("/dashboard")
+
+# =========================
+# ALUMNOS
 # =========================
 @app.route("/alumnos")
 def alumnos():
@@ -253,7 +275,7 @@ def eliminar_alumno(aid):
     return redirect("/alumnos")
 
 # =========================
-# EXPORTAR
+# EXPORTAR ALUMNOS
 # =========================
 @app.route("/exportar-alumnos")
 def exportar_alumnos():
@@ -269,8 +291,11 @@ def exportar_alumnos():
         for r in rows:
             yield ",".join(r)+"\n"
 
-    return Response(gen(), mimetype="text/csv",
-        headers={"Content-Disposition":"attachment;filename=alumnos.csv"})
+    return Response(
+        gen(),
+        mimetype="text/csv",
+        headers={"Content-Disposition":"attachment;filename=alumnos.csv"}
+    )
 
 # =========================
 # LOGIN / LOGOUT

@@ -19,7 +19,7 @@ TURNOS = [
 ]
 
 DIAS_HABILITADOS = (1, 2, 3)  # martes, miércoles, jueves
-UTC_OFFSET = -3  # Argentina
+UTC_OFFSET = -3
 
 USUARIO_ADMIN = "admin"
 PASSWORD_ADMIN = "1234"
@@ -40,7 +40,7 @@ def ahora_arg():
     return datetime.utcnow() + timedelta(hours=UTC_OFFSET)
 
 # =========================
-# ESTILOS + LAYOUT
+# ESTILOS
 # =========================
 BASE_HTML = """
 <style>
@@ -58,14 +58,7 @@ th,td{border:1px solid #ccc;padding:10px;text-align:center}
 
 .boton{display:inline-block;margin:10px 10px 10px 0;padding:10px 16px;background:#2563eb;color:white;border-radius:6px;text-decoration:none}
 .eliminar{color:red;font-weight:bold;text-decoration:none}
-
-.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:15px;margin-bottom:30px}
-.stat{background:#e0e7ff;padding:20px;border-radius:10px;text-align:center}
-.stat h2{margin:0;font-size:28px}
-.stat p{margin:5px 0 0;font-weight:bold}
-
 .pasado{color:#6b7280;font-style:italic}
-.cerrado{color:#6b7280;font-style:italic}
 </style>
 """
 
@@ -126,8 +119,6 @@ def registro():
         </select>
         <button>Registrar Alumno</button>
     </form>
-
-    <a class="boton" href="/asistencia">🧪 Ir a Asistencia</a>
     """))
 
 # =========================
@@ -148,9 +139,9 @@ def asistencia():
             error = "Solo martes, miércoles y jueves."
         elif fecha < hoy:
             error = "No se permiten fechas pasadas."
-        else:
+        elif fecha == hoy:
             for t, h in TURNOS:
-                if t == turno and fecha == hoy and ahora.time() >= h:
+                if t == turno and ahora.time() >= h:
                     error = "Turno cerrado por horario."
 
         if not error:
@@ -177,11 +168,7 @@ def asistencia():
                     ok = "Asistencia confirmada correctamente."
             db.close()
 
-    opciones = ""
-    for t, h in TURNOS:
-        if hoy == hoy and ahora.time() >= h:
-            continue
-        opciones += f"<option>{t}</option>"
+    opciones = "".join(f"<option>{t}</option>" for t, _ in TURNOS)
 
     return render_template_string(render_pagina(f"""
     <h1>Asistencia al Laboratorio</h1>
@@ -197,34 +184,35 @@ def asistencia():
     """))
 
 # =========================
-# DASHBOARD (FIX)
+# ELIMINAR ASISTENCIA (🔥 FIX)
+# =========================
+@app.route("/eliminar-asistencia/<int:aid>")
+def eliminar_asistencia(aid):
+    if not es_admin():
+        return redirect("/login")
+
+    db = get_db()
+    cur = db.cursor()
+    cur.execute("DELETE FROM asistencias WHERE id = %s", (aid,))
+    db.commit()
+    db.close()
+
+    return redirect("/dashboard")
+
+# =========================
+# DASHBOARD
 # =========================
 @app.route("/dashboard")
 def dashboard():
     if not es_admin():
         return redirect("/login")
 
-    ahora = ahora_arg()
     hoy = date.today()
+    ahora = ahora_arg()
 
     db = get_db()
     cur = db.cursor()
 
-    # Estadísticas
-    cur.execute("SELECT COUNT(*) FROM alumnos")
-    total_alumnos = cur.fetchone()[0]
-
-    cur.execute("SELECT fecha, turno FROM asistencias")
-    asistencias = cur.fetchall()
-    total_asistencias = len(asistencias)
-
-    dia_mas = Counter([a[0] for a in asistencias]).most_common(1)
-    turno_mas = Counter([a[1] for a in asistencias]).most_common(1)
-
-    dia_mas = dia_mas[0][0] if dia_mas else "—"
-    turno_mas = turno_mas[0][0] if turno_mas else "—"
-
-    # 🔧 ACA EL FIX: TRAEMOS TODAS
     cur.execute("""
         SELECT s.id, s.fecha, s.turno, a.nombre, a.apellido
         FROM asistencias s
@@ -235,82 +223,31 @@ def dashboard():
     db.close()
 
     data = defaultdict(dict)
-    for r in rows:
-        data[r[1]][r[2]] = (r[3] + " " + r[4], r[0])
+    for i, f, t, n, a in rows:
+        data[f][t] = (f"{n} {a}", i)
 
-    html = f"""
-    <h2>Dashboard</h2>
-
-    <div class="stats">
-        <div class="stat"><h2>{total_alumnos}</h2><p>Alumnos registrados</p></div>
-        <div class="stat"><h2>{total_asistencias}</h2><p>Asistencias</p></div>
-        <div class="stat"><h2>{dia_mas}</h2><p>Día más concurrido</p></div>
-        <div class="stat"><h2>{turno_mas}</h2><p>Turno más usado</p></div>
-    </div>
-
-    <a class="boton" href="/exportar-asistencias">📄 Exportar asistencias</a>
-    """
+    html = "<h2>Dashboard</h2>"
 
     for fecha in sorted(data.keys(), reverse=True):
-        pasado = fecha < hoy
         html += f"<h3>📅 {fecha}</h3><table>"
-        html += "<tr><th>Turno</th><th>Estado</th><th>Acción</th></tr>"
+        html += "<tr><th>Turno</th><th>Alumno</th><th>Acción</th></tr>"
 
-        for nombre, hora_inicio in TURNOS:
-            if pasado:
-                estado = data[fecha].get(nombre)
-                if estado:
-                    alumno, _ = estado
-                    html += f"<tr class='pasado'><td>{nombre}</td><td>{alumno}</td><td>-</td></tr>"
-                else:
-                    html += f"<tr class='pasado'><td>{nombre}</td><td>—</td><td>-</td></tr>"
-            elif fecha == hoy and ahora.time() >= hora_inicio:
-                html += f"<tr><td>{nombre}</td><td class='cerrado'>Cerrado</td><td>-</td></tr>"
-            elif nombre in data[fecha]:
-                alumno, aid = data[fecha][nombre]
+        for t, _ in TURNOS:
+            if t in data[fecha]:
+                alumno, aid = data[fecha][t]
                 html += f"""
                 <tr>
-                    <td>{nombre}</td>
+                    <td>{t}</td>
                     <td>{alumno}</td>
                     <td><a class="eliminar" href="/eliminar-asistencia/{aid}">🗑️</a></td>
                 </tr>
                 """
             else:
-                html += f"<tr><td>{nombre}</td><td>Libre</td><td>-</td></tr>"
+                html += f"<tr><td>{t}</td><td>Libre</td><td>-</td></tr>"
 
         html += "</table>"
 
     return render_template_string(render_pagina(html))
-
-# =========================
-# EXPORTAR ASISTENCIAS
-# =========================
-@app.route("/exportar-asistencias")
-def exportar_asistencias():
-    if not es_admin():
-        return redirect("/login")
-
-    db = get_db()
-    cur = db.cursor()
-    cur.execute("""
-        SELECT s.fecha, s.turno, a.nombre, a.apellido, a.telefono, a.nivel
-        FROM asistencias s
-        JOIN alumnos a ON a.id = s.alumno_id
-        ORDER BY s.fecha
-    """)
-    rows = cur.fetchall()
-    db.close()
-
-    def generar():
-        yield "Fecha,Turno,Nombre,Apellido,Telefono,Nivel\n"
-        for r in rows:
-            yield ",".join(str(x) for x in r) + "\n"
-
-    return Response(
-        generar(),
-        mimetype="text/csv",
-        headers={"Content-Disposition": "attachment; filename=asistencias.csv"}
-    )
 
 # =========================
 # LOGIN / LOGOUT

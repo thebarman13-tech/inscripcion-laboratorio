@@ -2,7 +2,7 @@ import os
 import psycopg2
 from flask import Flask, request, redirect, render_template_string, session, Response
 from datetime import datetime, date, time, timedelta
-from collections import defaultdict, Counter
+from collections import defaultdict
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "clave-secreta")
@@ -21,8 +21,9 @@ TURNOS = [
 DIAS_HABILITADOS = (1, 2, 3)  # martes, miércoles, jueves
 UTC_OFFSET = -3
 
-USUARIO_ADMIN = "admin"
-PASSWORD_ADMIN = "1234"
+# 🔐 CREDENCIALES ADMIN (CAMBIO FINAL)
+USUARIO_ADMIN = "DRTECNO"
+PASSWORD_ADMIN = "laboratorio2026"
 
 # =========================
 # DB
@@ -58,7 +59,6 @@ th,td{border:1px solid #ccc;padding:10px;text-align:center}
 
 .boton{display:inline-block;margin:10px 10px 10px 0;padding:10px 16px;background:#2563eb;color:white;border-radius:6px;text-decoration:none}
 .eliminar{color:red;font-weight:bold;text-decoration:none}
-.pasado{color:#6b7280;font-style:italic}
 </style>
 """
 
@@ -184,7 +184,7 @@ def asistencia():
     """))
 
 # =========================
-# ELIMINAR ASISTENCIA (🔥 FIX)
+# ELIMINAR ASISTENCIA
 # =========================
 @app.route("/eliminar-asistencia/<int:aid>")
 def eliminar_asistencia(aid):
@@ -193,10 +193,9 @@ def eliminar_asistencia(aid):
 
     db = get_db()
     cur = db.cursor()
-    cur.execute("DELETE FROM asistencias WHERE id = %s", (aid,))
+    cur.execute("DELETE FROM asistencias WHERE id=%s", (aid,))
     db.commit()
     db.close()
-
     return redirect("/dashboard")
 
 # =========================
@@ -207,12 +206,8 @@ def dashboard():
     if not es_admin():
         return redirect("/login")
 
-    hoy = date.today()
-    ahora = ahora_arg()
-
     db = get_db()
     cur = db.cursor()
-
     cur.execute("""
         SELECT s.id, s.fecha, s.turno, a.nombre, a.apellido
         FROM asistencias s
@@ -231,20 +226,12 @@ def dashboard():
     for fecha in sorted(data.keys(), reverse=True):
         html += f"<h3>📅 {fecha}</h3><table>"
         html += "<tr><th>Turno</th><th>Alumno</th><th>Acción</th></tr>"
-
         for t, _ in TURNOS:
             if t in data[fecha]:
                 alumno, aid = data[fecha][t]
-                html += f"""
-                <tr>
-                    <td>{t}</td>
-                    <td>{alumno}</td>
-                    <td><a class="eliminar" href="/eliminar-asistencia/{aid}">🗑️</a></td>
-                </tr>
-                """
+                html += f"<tr><td>{t}</td><td>{alumno}</td><td><a class='eliminar' href='/eliminar-asistencia/{aid}'>🗑️</a></td></tr>"
             else:
                 html += f"<tr><td>{t}</td><td>Libre</td><td>-</td></tr>"
-
         html += "</table>"
 
     return render_template_string(render_pagina(html))
@@ -272,8 +259,5 @@ def logout():
     session.pop("admin", None)
     return redirect("/login")
 
-# =========================
-# RUN
-# =========================
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))

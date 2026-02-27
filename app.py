@@ -3,14 +3,15 @@ import psycopg2
 from flask import Flask, request, redirect, render_template_string, session, Response
 from datetime import datetime, date, time, timedelta
 from collections import defaultdict
+import csv
+from io import StringIO
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "clave-secreta")
-
 DATABASE_URL = os.environ.get("DATABASE_URL")
 
 # =========================
-# CONFIGURACIÓN
+# CONFIG
 # =========================
 TURNOS = [
     ("12:00 a 14:00", time(12, 0)),
@@ -18,10 +19,9 @@ TURNOS = [
     ("16:00 a 18:00", time(16, 0)),
 ]
 
-DIAS_HABILITADOS = (1, 2, 3)  # martes, miércoles, jueves
+DIAS_HABILITADOS = (1, 2, 3)  # mar, mié, jue
 UTC_OFFSET = -3
 
-# 🔐 CREDENCIALES ADMIN (CAMBIO FINAL)
 USUARIO_ADMIN = "DRTECNO"
 PASSWORD_ADMIN = "laboratorio2026"
 
@@ -31,17 +31,14 @@ PASSWORD_ADMIN = "laboratorio2026"
 def get_db():
     return psycopg2.connect(DATABASE_URL, sslmode="require")
 
-# =========================
-# UTILS
-# =========================
-def es_admin():
-    return session.get("admin") is True
-
 def ahora_arg():
     return datetime.utcnow() + timedelta(hours=UTC_OFFSET)
 
+def es_admin():
+    return session.get("admin") is True
+
 # =========================
-# ESTILOS
+# HTML BASE
 # =========================
 BASE_HTML = """
 <style>
@@ -50,15 +47,12 @@ body{margin:0;background:#f2f2f2;font-family:Arial}
 .header-inner{max-width:1100px;margin:auto;display:flex;justify-content:space-between}
 .header a{color:white;margin-left:16px;font-weight:bold;text-decoration:none}
 .container{max-width:1100px;margin:110px auto;background:white;padding:30px;border-radius:12px}
-
 input,select,button{width:100%;padding:14px;font-size:17px;margin-bottom:14px}
 button{background:#2563eb;color:white;border:none;border-radius:8px}
-
 table{width:100%;border-collapse:collapse;margin-top:15px}
 th,td{border:1px solid #ccc;padding:10px;text-align:center}
-
-.boton{display:inline-block;margin:10px 10px 10px 0;padding:10px 16px;background:#2563eb;color:white;border-radius:6px;text-decoration:none}
 .eliminar{color:red;font-weight:bold;text-decoration:none}
+.boton{display:inline-block;padding:10px 16px;background:#2563eb;color:white;border-radius:6px;text-decoration:none;margin-bottom:15px}
 </style>
 """
 
@@ -82,7 +76,7 @@ def render_pagina(contenido):
 # =========================
 @app.route("/", methods=["GET", "POST"])
 def registro():
-    mensaje = ""
+    msg = ""
     if request.method == "POST":
         try:
             db = get_db()
@@ -97,16 +91,15 @@ def registro():
                 request.form["nivel"]
             ))
             db.commit()
-            mensaje = "Alumno registrado correctamente."
+            msg = "Alumno registrado correctamente."
         except psycopg2.errors.UniqueViolation:
-            mensaje = "El alumno ya está registrado."
+            msg = "El alumno ya está registrado."
         finally:
             db.close()
 
     return render_template_string(render_pagina(f"""
     <h1>Registro Único de Alumno</h1>
-    <p style="color:green">{mensaje}</p>
-
+    <p style="color:green">{msg}</p>
     <form method="post">
         <input name="nombre" placeholder="Nombre" required>
         <input name="apellido" placeholder="Apellido" required>
@@ -161,7 +154,7 @@ def asistencia():
                     error = "Ese turno ya está ocupado."
                 else:
                     cur.execute(
-                        "INSERT INTO asistencias (alumno_id, fecha, turno) VALUES (%s, %s, %s)",
+                        "INSERT INTO asistencias (alumno_id, fecha, turno) VALUES (%s,%s,%s)",
                         (alumno[0], fecha, turno)
                     )
                     db.commit()
@@ -174,7 +167,6 @@ def asistencia():
     <h1>Asistencia al Laboratorio</h1>
     <p style="color:red">{error}</p>
     <p style="color:green">{ok}</p>
-
     <form method="post">
         <input name="telefono" placeholder="Teléfono" required>
         <input type="date" name="fecha" min="{hoy}" required>
@@ -182,21 +174,6 @@ def asistencia():
         <button>Confirmar Turno</button>
     </form>
     """))
-
-# =========================
-# ELIMINAR ASISTENCIA
-# =========================
-@app.route("/eliminar-asistencia/<int:aid>")
-def eliminar_asistencia(aid):
-    if not es_admin():
-        return redirect("/login")
-
-    db = get_db()
-    cur = db.cursor()
-    cur.execute("DELETE FROM asistencias WHERE id=%s", (aid,))
-    db.commit()
-    db.close()
-    return redirect("/dashboard")
 
 # =========================
 # DASHBOARD
@@ -221,7 +198,10 @@ def dashboard():
     for i, f, t, n, a in rows:
         data[f][t] = (f"{n} {a}", i)
 
-    html = "<h2>Dashboard</h2>"
+    html = """
+    <h2>Dashboard</h2>
+    <a class="boton" href="/alumnos">👥 Alumnos registrados</a>
+    """
 
     for fecha in sorted(data.keys(), reverse=True):
         html += f"<h3>📅 {fecha}</h3><table>"
@@ -237,7 +217,88 @@ def dashboard():
     return render_template_string(render_pagina(html))
 
 # =========================
-# LOGIN / LOGOUT
+# HISTORIAL POR ALUMNO
+# =========================
+@app.route("/alumnos")
+def alumnos():
+    if not es_admin():
+        return redirect("/login")
+
+    db = get_db()
+    cur = db.cursor()
+    cur.execute("""
+        SELECT a.id, a.nombre, a.apellido, a.telefono, a.nivel,
+               s.fecha, s.turno
+        FROM alumnos a
+        LEFT JOIN asistencias s ON s.alumno_id = a.id
+        ORDER BY a.apellido, a.nombre, s.fecha
+    """)
+    rows = cur.fetchall()
+    db.close()
+
+    alumnos = defaultdict(list)
+    info = {}
+
+    for aid, n, a, tel, niv, f, t in rows:
+        info[aid] = (n, a, tel, niv)
+        if f:
+            alumnos[aid].append((f, t))
+
+    html = """
+    <h2>📘 Alumnos registrados + historial</h2>
+    <a class="boton" href="/exportar-alumnos">📥 Descargar Excel</a>
+    """
+
+    for aid, datos in info.items():
+        n, a, tel, niv = datos
+        asist = alumnos.get(aid, [])
+        html += f"""
+        <hr>
+        <b>{n} {a}</b> ({niv})<br>
+        📞 {tel}<br>
+        ✔ Asistencias: {len(asist)}
+        <ul>
+        """
+        for f, t in asist:
+            html += f"<li>{f} – {t}</li>"
+        html += "</ul>"
+
+    return render_template_string(render_pagina(html))
+
+# =========================
+# EXPORT EXCEL
+# =========================
+@app.route("/exportar-alumnos")
+def exportar_alumnos():
+    if not es_admin():
+        return redirect("/login")
+
+    db = get_db()
+    cur = db.cursor()
+    cur.execute("""
+        SELECT a.nombre, a.apellido, a.telefono, a.nivel,
+               s.fecha, s.turno
+        FROM alumnos a
+        LEFT JOIN asistencias s ON s.alumno_id = a.id
+        ORDER BY a.apellido, a.nombre
+    """)
+    rows = cur.fetchall()
+    db.close()
+
+    output = StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["Nombre", "Apellido", "Teléfono", "Nivel", "Fecha", "Turno"])
+    for r in rows:
+        writer.writerow(r)
+
+    return Response(
+        output.getvalue(),
+        mimetype="text/csv",
+        headers={"Content-Disposition": "attachment;filename=alumnos_historial.csv"}
+    )
+
+# =========================
+# LOGIN
 # =========================
 @app.route("/login", methods=["GET", "POST"])
 def login():
@@ -258,6 +319,17 @@ def login():
 def logout():
     session.pop("admin", None)
     return redirect("/login")
+
+@app.route("/eliminar-asistencia/<int:aid>")
+def eliminar_asistencia(aid):
+    if not es_admin():
+        return redirect("/login")
+    db = get_db()
+    cur = db.cursor()
+    cur.execute("DELETE FROM asistencias WHERE id=%s", (aid,))
+    db.commit()
+    db.close()
+    return redirect("/dashboard")
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))

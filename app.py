@@ -62,6 +62,10 @@ th,td{border:1px solid #ccc;padding:10px;text-align:center}
     margin-bottom:20px;
 }
 .mensaje-ok h3{margin-top:0;color:#166534}
+
+.ocupado{background:#fecaca}
+.libre{background:#dcfce7}
+.cerrado{color:#991b1b;font-weight:bold}
 </style>
 """
 
@@ -119,13 +123,26 @@ def registro():
     """))
 
 # =========================
-# ASISTENCIA (Paso 7)
+# ASISTENCIA (cupos visibles)
 # =========================
 @app.route("/asistencia", methods=["GET","POST"])
 def asistencia():
     error=""
     mensaje_ok=""
     hoy = date.today()
+
+    # cupos por fecha
+    db=get_db();cur=db.cursor()
+    cur.execute("""
+        SELECT fecha, turno FROM asistencias
+        WHERE fecha >= %s
+    """,(hoy,))
+    rows = cur.fetchall()
+    db.close()
+
+    cupos = defaultdict(list)
+    for f,t in rows:
+        cupos[f].append(t)
 
     if request.method=="POST":
         fecha = datetime.strptime(request.form["fecha"],"%Y-%m-%d").date()
@@ -135,6 +152,8 @@ def asistencia():
             error="No se permiten fechas pasadas."
         elif fecha.weekday() not in (1,2,3):
             error="Solo martes, miércoles o jueves."
+        elif len(cupos.get(fecha,[])) >= len(TURNOS):
+            error="Ese día está completo."
         else:
             db=get_db();cur=db.cursor()
             cur.execute("SELECT id FROM alumnos WHERE telefono=%s",(request.form["telefono"],))
@@ -145,10 +164,10 @@ def asistencia():
             else:
                 cur.execute("""
                     SELECT 1 FROM asistencias
-                    WHERE alumno_id=%s AND fecha=%s
-                """,(alumno[0],fecha))
+                    WHERE fecha=%s AND turno=%s
+                """,(fecha,turno))
                 if cur.fetchone():
-                    error="Ya tiene un turno ese día."
+                    error="Ese turno ya está ocupado."
                 else:
                     cur.execute("""
                         INSERT INTO asistencias(alumno_id,fecha,turno)
@@ -164,14 +183,18 @@ def asistencia():
                         <ul>
                             <li>🔧 Recordar llevar las herramientas de uso personal (pinzas, flux, estaño, pegamento, etc).</li>
                             <li>⏱️ Respetar el horario elegido ya que luego hay otro alumno en el siguiente turno.</li>
-                            <li>🧹 Respetar las normas de convivencia del Laboratorio (orden y limpieza del puesto de trabajo).</li>
-                            <li>📲 De no poder asistir al curso elegido dar aviso por WhatsApp para liberar el horario.</li>
+                            <li>🧹 Respetar las normas de convivencia del Laboratorio.</li>
+                            <li>📲 Avisar por WhatsApp si no puede asistir.</li>
                         </ul>
                     </div>
                     """
             db.close()
 
-    opciones = "".join([f"<option>{t}</option>" for t in TURNOS])
+    opciones=""
+    for t in TURNOS:
+        opciones += f"<option>{t}</option>"
+
+    dias_completos = ",".join([f"'{f}'" for f in cupos if len(cupos[f])>=3])
 
     return render_template_string(render_pagina(f"""
     <h1>Asistencia al Laboratorio</h1>
@@ -180,14 +203,24 @@ def asistencia():
 
     <form method="post">
         <input name="telefono" placeholder="Teléfono" required>
-        <input type="date" name="fecha" min="{hoy}" required>
+        <input type="date" id="fecha" name="fecha" min="{hoy}" required>
         <select name="turno" required>{opciones}</select>
         <button>Confirmar Turno</button>
     </form>
+
+    <script>
+    const diasCompletos = [{dias_completos}];
+    document.getElementById("fecha").addEventListener("change", e => {{
+        if (diasCompletos.includes(e.target.value)) {{
+            alert("Ese día ya está completo.");
+            e.target.value="";
+        }}
+    }});
+    </script>
     """))
 
 # =========================
-# DASHBOARD
+# DASHBOARD (cupos visibles)
 # =========================
 @app.route("/dashboard")
 def dashboard():
@@ -205,33 +238,38 @@ def dashboard():
     """,(hoy,))
     rows=cur.fetchall();db.close()
 
-    data=defaultdict(list)
+    data=defaultdict(dict)
+    conteo=defaultdict(int)
     for r in rows:
-        data[r[1]].append(r)
+        data[r[1]][r[2]] = (r[3]+" "+r[4], r[5], r[0])
+        conteo[r[1]] += 1
 
     html = """
-    <h2>Dashboard – Asistencias</h2>
+    <h2>Dashboard – Cupos por Día</h2>
     <a class="boton" href="/alumnos">👥 Alumnos Registrados</a>
     """
 
     for fecha in sorted(data.keys()):
-        html += f"<h3>📅 {fecha}</h3><table>"
+        restantes = 3 - conteo[fecha]
+        estado = "🔒 Día completo" if restantes==0 else f"🟢 Cupos disponibles: {restantes} / 3"
+
+        html += f"<h3>📅 {fecha} – {estado}</h3><table>"
         html += "<tr><th>Turno</th><th>Alumno</th><th>Nivel</th><th>Acción</th></tr>"
-        for r in data[fecha]:
-            html += f"""
-            <tr class="nivel-{r[5]}">
-                <td>{r[2]}</td>
-                <td>{r[3]} {r[4]}</td>
-                <td>{r[5]}</td>
-                <td>
-                    <a class="eliminar"
-                       href="/eliminar-asistencia/{r[0]}"
-                       onclick="return confirm('¿Eliminar esta asistencia?')">
-                       🗑️
-                    </a>
-                </td>
-            </tr>
-            """
+
+        for t in TURNOS:
+            if t in data[fecha]:
+                alumno,nivel,aid = data[fecha][t]
+                html += f"""
+                <tr class="nivel-{nivel}">
+                    <td>{t}</td>
+                    <td>{alumno}</td>
+                    <td>{nivel}</td>
+                    <td><a class="eliminar" href="/eliminar-asistencia/{aid}">🗑️</a></td>
+                </tr>
+                """
+            else:
+                html += f"<tr class='libre'><td>{t}</td><td>Libre</td><td>-</td><td>-</td></tr>"
+
         html += "</table>"
 
     return render_template_string(render_pagina(html))
@@ -243,81 +281,10 @@ def dashboard():
 def eliminar_asistencia(aid):
     if not es_admin():
         return redirect("/login")
-
     db=get_db();cur=db.cursor()
     cur.execute("DELETE FROM asistencias WHERE id=%s",(aid,))
     db.commit();db.close()
     return redirect("/dashboard")
-
-# =========================
-# ALUMNOS
-# =========================
-@app.route("/alumnos")
-def alumnos():
-    if not es_admin():
-        return redirect("/login")
-
-    db=get_db();cur=db.cursor()
-    cur.execute("SELECT id,nombre,apellido,telefono,nivel FROM alumnos ORDER BY apellido")
-    rows=cur.fetchall();db.close()
-
-    html = """
-    <h2>Alumnos Registrados</h2>
-    <a class="boton" href="/exportar-alumnos">📥 Exportar alumnos</a>
-    <table>
-    <tr><th>Nombre</th><th>Teléfono</th><th>Nivel</th><th>Acción</th></tr>
-    """
-
-    for r in rows:
-        html += f"""
-        <tr class="nivel-{r[4]}">
-            <td>{r[1]} {r[2]}</td>
-            <td>{r[3]}</td>
-            <td>{r[4]}</td>
-            <td><a class="eliminar" href="/eliminar-alumno/{r[0]}">🗑️</a></td>
-        </tr>
-        """
-
-    html += "</table>"
-    return render_template_string(render_pagina(html))
-
-# =========================
-# ELIMINAR ALUMNO
-# =========================
-@app.route("/eliminar-alumno/<int:aid>")
-def eliminar_alumno(aid):
-    if not es_admin():
-        return redirect("/login")
-
-    db=get_db();cur=db.cursor()
-    cur.execute("SELECT 1 FROM asistencias WHERE alumno_id=%s",(aid,))
-    if cur.fetchone():
-        db.close()
-        return redirect("/alumnos")
-
-    cur.execute("DELETE FROM alumnos WHERE id=%s",(aid,))
-    db.commit();db.close()
-    return redirect("/alumnos")
-
-# =========================
-# EXPORTAR
-# =========================
-@app.route("/exportar-alumnos")
-def exportar_alumnos():
-    if not es_admin():
-        return redirect("/login")
-
-    db=get_db();cur=db.cursor()
-    cur.execute("SELECT nombre,apellido,telefono,nivel FROM alumnos")
-    rows=cur.fetchall();db.close()
-
-    def gen():
-        yield "Nombre,Apellido,Telefono,Nivel\n"
-        for r in rows:
-            yield ",".join(r) + "\n"
-
-    return Response(gen(), mimetype="text/csv",
-        headers={"Content-Disposition":"attachment;filename=alumnos.csv"})
 
 # =========================
 # LOGIN / LOGOUT

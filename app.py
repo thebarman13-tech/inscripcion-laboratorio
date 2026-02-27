@@ -40,8 +40,10 @@ body{margin:0;background:#f2f2f2;font-family:Arial}
 .header-inner{max-width:1000px;margin:auto;display:flex;justify-content:space-between}
 .header a{color:white;margin-left:16px;font-weight:bold;text-decoration:none}
 .container{max-width:1000px;margin:110px auto;background:white;padding:30px;border-radius:12px}
+
 input,select,button{width:100%;padding:14px;font-size:17px;margin-bottom:14px}
 button{background:#2563eb;color:white;border:none;border-radius:8px}
+
 table{width:100%;border-collapse:collapse;margin-top:15px}
 th,td{border:1px solid #ccc;padding:10px;text-align:center}
 
@@ -51,6 +53,15 @@ th,td{border:1px solid #ccc;padding:10px;text-align:center}
 
 .eliminar{color:red;font-weight:bold;text-decoration:none}
 .boton{display:inline-block;margin:10px 10px 10px 0;padding:10px 16px;background:#2563eb;color:white;border-radius:6px;text-decoration:none}
+
+.mensaje-ok{
+    background:#dcfce7;
+    border:2px solid #22c55e;
+    padding:20px;
+    border-radius:10px;
+    margin-bottom:20px;
+}
+.mensaje-ok h3{margin-top:0;color:#166534}
 </style>
 """
 
@@ -70,7 +81,7 @@ def render_pagina(contenido):
     """
 
 # =========================
-# REGISTRO ALUMNOS
+# REGISTRO ÚNICO
 # =========================
 @app.route("/", methods=["GET","POST"])
 def registro():
@@ -108,15 +119,17 @@ def registro():
     """))
 
 # =========================
-# ASISTENCIA
+# ASISTENCIA (Paso 7)
 # =========================
 @app.route("/asistencia", methods=["GET","POST"])
 def asistencia():
     error=""
+    mensaje_ok=""
     hoy = date.today()
 
     if request.method=="POST":
         fecha = datetime.strptime(request.form["fecha"],"%Y-%m-%d").date()
+        turno = request.form["turno"]
 
         if fecha < hoy:
             error="No se permiten fechas pasadas."
@@ -140,17 +153,32 @@ def asistencia():
                     cur.execute("""
                         INSERT INTO asistencias(alumno_id,fecha,turno)
                         VALUES(%s,%s,%s)
-                    """,(alumno[0],fecha,request.form["turno"]))
+                    """,(alumno[0],fecha,turno))
                     db.commit()
+
+                    mensaje_ok = f"""
+                    <div class="mensaje-ok">
+                        <h3>✅ Asistencia confirmada</h3>
+                        <p><b>📅 Día:</b> {fecha}</p>
+                        <p><b>⏰ Horario:</b> {turno}</p>
+                        <ul>
+                            <li>🔧 Recordar llevar las herramientas de uso personal (pinzas, flux, estaño, pegamento, etc).</li>
+                            <li>⏱️ Respetar el horario elegido ya que luego hay otro alumno en el siguiente turno.</li>
+                            <li>🧹 Respetar las normas de convivencia del Laboratorio (orden y limpieza del puesto de trabajo).</li>
+                            <li>📲 De no poder asistir al curso elegido dar aviso por WhatsApp para liberar el horario.</li>
+                        </ul>
+                    </div>
+                    """
             db.close()
 
     opciones = "".join([f"<option>{t}</option>" for t in TURNOS])
 
     return render_template_string(render_pagina(f"""
     <h1>Asistencia al Laboratorio</h1>
+    {mensaje_ok}
     <p style="color:red">{error}</p>
-    <form method="post"
-      onsubmit="return confirm('¿Confirma la asistencia al laboratorio en el día y horario elegido?\\n\\n• Recordar llevar las herramientas de uso personal (pinzas, flux, estaño, pegamento, etc).\\n• Respetar el horario elegido ya que luego hay otro alumno en el siguiente turno.\\n• Respetar normas de convivencia del laboratorio (orden y limpieza del puesto de trabajo).\\n• De no poder asistir dar aviso por WhatsApp para liberar el horario.')">
+
+    <form method="post">
         <input name="telefono" placeholder="Teléfono" required>
         <input type="date" name="fecha" min="{hoy}" required>
         <select name="turno" required>{opciones}</select>
@@ -181,16 +209,16 @@ def dashboard():
     for r in rows:
         data[r[1]].append(r)
 
-    html="""
+    html = """
     <h2>Dashboard – Asistencias</h2>
     <a class="boton" href="/alumnos">👥 Alumnos Registrados</a>
     """
 
     for fecha in sorted(data.keys()):
-        html+=f"<h3>📅 {fecha}</h3><table>"
-        html+="<tr><th>Turno</th><th>Alumno</th><th>Nivel</th><th>Acción</th></tr>"
+        html += f"<h3>📅 {fecha}</h3><table>"
+        html += "<tr><th>Turno</th><th>Alumno</th><th>Nivel</th><th>Acción</th></tr>"
         for r in data[fecha]:
-            html+=f"""
+            html += f"""
             <tr class="nivel-{r[5]}">
                 <td>{r[2]}</td>
                 <td>{r[3]} {r[4]}</td>
@@ -204,24 +232,21 @@ def dashboard():
                 </td>
             </tr>
             """
-        html+="</table>"
+        html += "</table>"
 
     return render_template_string(render_pagina(html))
 
 # =========================
-# ELIMINAR ASISTENCIA (CORREGIDO)
+# ELIMINAR ASISTENCIA
 # =========================
 @app.route("/eliminar-asistencia/<int:aid>")
 def eliminar_asistencia(aid):
     if not es_admin():
         return redirect("/login")
 
-    db = get_db()
-    cur = db.cursor()
-    cur.execute("DELETE FROM asistencias WHERE id=%s", (aid,))
-    db.commit()
-    db.close()
-
+    db=get_db();cur=db.cursor()
+    cur.execute("DELETE FROM asistencias WHERE id=%s",(aid,))
+    db.commit();db.close()
     return redirect("/dashboard")
 
 # =========================
@@ -236,7 +261,7 @@ def alumnos():
     cur.execute("SELECT id,nombre,apellido,telefono,nivel FROM alumnos ORDER BY apellido")
     rows=cur.fetchall();db.close()
 
-    html="""
+    html = """
     <h2>Alumnos Registrados</h2>
     <a class="boton" href="/exportar-alumnos">📥 Exportar alumnos</a>
     <table>
@@ -244,7 +269,7 @@ def alumnos():
     """
 
     for r in rows:
-        html+=f"""
+        html += f"""
         <tr class="nivel-{r[4]}">
             <td>{r[1]} {r[2]}</td>
             <td>{r[3]}</td>
@@ -253,7 +278,7 @@ def alumnos():
         </tr>
         """
 
-    html+="</table>"
+    html += "</table>"
     return render_template_string(render_pagina(html))
 
 # =========================
@@ -275,7 +300,7 @@ def eliminar_alumno(aid):
     return redirect("/alumnos")
 
 # =========================
-# EXPORTAR ALUMNOS
+# EXPORTAR
 # =========================
 @app.route("/exportar-alumnos")
 def exportar_alumnos():
@@ -289,13 +314,10 @@ def exportar_alumnos():
     def gen():
         yield "Nombre,Apellido,Telefono,Nivel\n"
         for r in rows:
-            yield ",".join(r)+"\n"
+            yield ",".join(r) + "\n"
 
-    return Response(
-        gen(),
-        mimetype="text/csv",
-        headers={"Content-Disposition":"attachment;filename=alumnos.csv"}
-    )
+    return Response(gen(), mimetype="text/csv",
+        headers={"Content-Disposition":"attachment;filename=alumnos.csv"})
 
 # =========================
 # LOGIN / LOGOUT

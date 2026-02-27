@@ -1,7 +1,7 @@
 import os
 import psycopg2
 from flask import Flask, request, redirect, render_template_string, session, Response
-from datetime import datetime, date
+from datetime import datetime, date, time, timedelta
 from collections import defaultdict
 
 app = Flask(__name__)
@@ -9,11 +9,16 @@ app.secret_key = os.environ.get("SECRET_KEY", "clave-secreta")
 
 DATABASE_URL = os.environ.get("DATABASE_URL")
 
+# =========================
+# CONFIGURACIÓN TURNOS
+# =========================
 TURNOS = [
-    "12:00 a 14:00",
-    "14:00 a 16:00",
-    "16:00 a 18:00"
+    ("12:00 a 14:00", time(12, 0)),
+    ("14:00 a 16:00", time(14, 0)),
+    ("16:00 a 18:00", time(16, 0)),
 ]
+
+UTC_OFFSET = -3  # Argentina
 
 # =========================
 # DB
@@ -29,6 +34,12 @@ PASSWORD_ADMIN = "1234"
 
 def es_admin():
     return session.get("admin") is True
+
+# =========================
+# TIEMPO ACTUAL ARG
+# =========================
+def ahora_arg():
+    return datetime.utcnow() + timedelta(hours=UTC_OFFSET)
 
 # =========================
 # ESTILOS
@@ -47,25 +58,12 @@ button{background:#2563eb;color:white;border:none;border-radius:8px}
 table{width:100%;border-collapse:collapse;margin-top:15px}
 th,td{border:1px solid #ccc;padding:10px;text-align:center}
 
-.nivel-Inicial{background:#dbeafe}
-.nivel-Intermedio{background:#fef9c3}
-.nivel-Avanzado{background:#dcfce7}
-
 .eliminar{color:red;font-weight:bold;text-decoration:none}
 .boton{display:inline-block;margin:10px 10px 10px 0;padding:10px 16px;background:#2563eb;color:white;border-radius:6px;text-decoration:none}
 
-.mensaje-ok{
-    background:#dcfce7;
-    border:2px solid #22c55e;
-    padding:20px;
-    border-radius:10px;
-    margin-bottom:20px;
-}
-.mensaje-ok h3{margin-top:0;color:#166534}
-
 .ocupado{background:#fecaca}
 .libre{background:#dcfce7}
-.cerrado{color:#991b1b;font-weight:bold}
+.cerrado{background:#e5e7eb;color:#6b7280;font-style:italic}
 </style>
 """
 
@@ -123,15 +121,15 @@ def registro():
     """))
 
 # =========================
-# ASISTENCIA (cupos visibles)
+# ASISTENCIA (cierres por horario)
 # =========================
 @app.route("/asistencia", methods=["GET","POST"])
 def asistencia():
     error=""
     mensaje_ok=""
     hoy = date.today()
+    ahora = ahora_arg()
 
-    # cupos por fecha
     db=get_db();cur=db.cursor()
     cur.execute("""
         SELECT fecha, turno FROM asistencias
@@ -140,21 +138,27 @@ def asistencia():
     rows = cur.fetchall()
     db.close()
 
-    cupos = defaultdict(list)
+    ocupados = defaultdict(list)
     for f,t in rows:
-        cupos[f].append(t)
+        ocupados[f].append(t)
+
+    turnos_disponibles = []
+
+    for nombre, hora_inicio in TURNOS:
+        if hoy == hoy and ahora.date() == hoy and ahora.time() >= hora_inicio:
+            continue
+        turnos_disponibles.append(nombre)
 
     if request.method=="POST":
         fecha = datetime.strptime(request.form["fecha"],"%Y-%m-%d").date()
         turno = request.form["turno"]
 
-        if fecha < hoy:
-            error="No se permiten fechas pasadas."
-        elif fecha.weekday() not in (1,2,3):
-            error="Solo martes, miércoles o jueves."
-        elif len(cupos.get(fecha,[])) >= len(TURNOS):
-            error="Ese día está completo."
-        else:
+        for n,h in TURNOS:
+            if n == turno and fecha == hoy and ahora.time() >= h:
+                error="Ese turno ya está cerrado por horario."
+                break
+
+        if not error:
             db=get_db();cur=db.cursor()
             cur.execute("SELECT id FROM alumnos WHERE telefono=%s",(request.form["telefono"],))
             alumno = cur.fetchone()
@@ -174,53 +178,28 @@ def asistencia():
                         VALUES(%s,%s,%s)
                     """,(alumno[0],fecha,turno))
                     db.commit()
-
-                    mensaje_ok = f"""
-                    <div class="mensaje-ok">
-                        <h3>✅ Asistencia confirmada</h3>
-                        <p><b>📅 Día:</b> {fecha}</p>
-                        <p><b>⏰ Horario:</b> {turno}</p>
-                        <ul>
-                            <li>🔧 Recordar llevar las herramientas de uso personal (pinzas, flux, estaño, pegamento, etc).</li>
-                            <li>⏱️ Respetar el horario elegido ya que luego hay otro alumno en el siguiente turno.</li>
-                            <li>🧹 Respetar las normas de convivencia del Laboratorio.</li>
-                            <li>📲 Avisar por WhatsApp si no puede asistir.</li>
-                        </ul>
-                    </div>
-                    """
+                    mensaje_ok="Asistencia confirmada."
             db.close()
 
-    opciones=""
-    for t in TURNOS:
-        opciones += f"<option>{t}</option>"
-
-    dias_completos = ",".join([f"'{f}'" for f in cupos if len(cupos[f])>=3])
+    opciones = "".join(f"<option>{t}</option>" for t in turnos_disponibles)
 
     return render_template_string(render_pagina(f"""
     <h1>Asistencia al Laboratorio</h1>
-    {mensaje_ok}
     <p style="color:red">{error}</p>
+    <p style="color:green">{mensaje_ok}</p>
 
     <form method="post">
         <input name="telefono" placeholder="Teléfono" required>
-        <input type="date" id="fecha" name="fecha" min="{hoy}" required>
-        <select name="turno" required>{opciones}</select>
+        <input type="date" name="fecha" min="{hoy}" required>
+        <select name="turno" required>
+            {opciones}
+        </select>
         <button>Confirmar Turno</button>
     </form>
-
-    <script>
-    const diasCompletos = [{dias_completos}];
-    document.getElementById("fecha").addEventListener("change", e => {{
-        if (diasCompletos.includes(e.target.value)) {{
-            alert("Ese día ya está completo.");
-            e.target.value="";
-        }}
-    }});
-    </script>
     """))
 
 # =========================
-# DASHBOARD (cupos visibles)
+# DASHBOARD
 # =========================
 @app.route("/dashboard")
 def dashboard():
@@ -228,54 +207,50 @@ def dashboard():
         return redirect("/login")
 
     hoy = date.today()
+    ahora = ahora_arg()
+
     db=get_db();cur=db.cursor()
     cur.execute("""
-        SELECT s.id, s.fecha, s.turno, a.nombre, a.apellido, a.nivel
+        SELECT s.id, s.fecha, s.turno, a.nombre, a.apellido
         FROM asistencias s
         JOIN alumnos a ON a.id = s.alumno_id
         WHERE s.fecha >= %s
         ORDER BY s.fecha
     """,(hoy,))
-    rows=cur.fetchall();db.close()
+    rows=cur.fetchall()
+    db.close()
 
     data=defaultdict(dict)
-    conteo=defaultdict(int)
     for r in rows:
-        data[r[1]][r[2]] = (r[3]+" "+r[4], r[5], r[0])
-        conteo[r[1]] += 1
+        data[r[1]][r[2]] = (r[3]+" "+r[4], r[0])
 
-    html = """
-    <h2>Dashboard – Cupos por Día</h2>
-    <a class="boton" href="/alumnos">👥 Alumnos Registrados</a>
-    """
+    html="<h2>Dashboard – Turnos</h2>"
 
     for fecha in sorted(data.keys()):
-        restantes = 3 - conteo[fecha]
-        estado = "🔒 Día completo" if restantes==0 else f"🟢 Cupos disponibles: {restantes} / 3"
+        html += f"<h3>📅 {fecha}</h3><table>"
+        html += "<tr><th>Turno</th><th>Estado</th><th>Acción</th></tr>"
 
-        html += f"<h3>📅 {fecha} – {estado}</h3><table>"
-        html += "<tr><th>Turno</th><th>Alumno</th><th>Nivel</th><th>Acción</th></tr>"
-
-        for t in TURNOS:
-            if t in data[fecha]:
-                alumno,nivel,aid = data[fecha][t]
+        for nombre, hora_inicio in TURNOS:
+            if fecha == hoy and ahora.time() >= hora_inicio:
+                html += f"<tr class='cerrado'><td>{nombre}</td><td>Cerrado por horario</td><td>-</td></tr>"
+            elif nombre in data[fecha]:
+                alumno, aid = data[fecha][nombre]
                 html += f"""
-                <tr class="nivel-{nivel}">
-                    <td>{t}</td>
+                <tr class='ocupado'>
+                    <td>{nombre}</td>
                     <td>{alumno}</td>
-                    <td>{nivel}</td>
-                    <td><a class="eliminar" href="/eliminar-asistencia/{aid}">🗑️</a></td>
+                    <td><a class='eliminar' href='/eliminar-asistencia/{aid}'>🗑️</a></td>
                 </tr>
                 """
             else:
-                html += f"<tr class='libre'><td>{t}</td><td>Libre</td><td>-</td><td>-</td></tr>"
+                html += f"<tr class='libre'><td>{nombre}</td><td>Libre</td><td>-</td></tr>"
 
         html += "</table>"
 
     return render_template_string(render_pagina(html))
 
 # =========================
-# ELIMINAR ASISTENCIA
+# ELIMINAR
 # =========================
 @app.route("/eliminar-asistencia/<int:aid>")
 def eliminar_asistencia(aid):
@@ -287,7 +262,7 @@ def eliminar_asistencia(aid):
     return redirect("/dashboard")
 
 # =========================
-# LOGIN / LOGOUT
+# LOGIN
 # =========================
 @app.route("/login", methods=["GET","POST"])
 def login():

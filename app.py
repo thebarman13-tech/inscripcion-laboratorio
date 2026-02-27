@@ -1,6 +1,6 @@
 import os
 import psycopg2
-from flask import Flask, request, redirect, render_template_string, session
+from flask import Flask, request, redirect, render_template_string, session, Response
 from datetime import datetime, date
 from collections import defaultdict
 
@@ -48,6 +48,7 @@ th,td{border:1px solid #ccc;padding:10px;text-align:center}
 .libre{background:#bbf7d0}
 .cerrado{background:#e5e7eb;font-weight:bold}
 .eliminar{color:red;font-weight:bold;text-decoration:none}
+.boton{display:inline-block;margin:10px 0;padding:10px 16px;background:#2563eb;color:white;border-radius:6px;text-decoration:none}
 </style>
 """
 
@@ -105,7 +106,7 @@ def registro():
     """))
 
 # =========================
-# ASISTENCIA (solo fechas futuras)
+# ASISTENCIA (con confirmación)
 # =========================
 @app.route("/asistencia", methods=["GET","POST"])
 def asistencia():
@@ -118,42 +119,27 @@ def asistencia():
         fecha_dt = datetime.strptime(fecha,"%Y-%m-%d").date()
 
         if fecha_dt < hoy:
-            error = "No se pueden seleccionar fechas pasadas."
+            error="No se pueden seleccionar fechas pasadas."
         elif fecha_dt.weekday() not in (1,2,3):
-            error = "Solo martes, miércoles o jueves."
+            error="Solo martes, miércoles o jueves."
         else:
             db=get_db();cur=db.cursor()
-
-            cur.execute("""
-                SELECT COUNT(*) FROM asistencias
-                WHERE fecha=%s
-            """,(fecha,))
-            usados_dia = cur.fetchone()[0]
-
-            if usados_dia >= len(TURNOS):
-                error = "Ese día ya está completo."
+            cur.execute("SELECT COUNT(*) FROM asistencias WHERE fecha=%s",(fecha,))
+            if cur.fetchone()[0] >= len(TURNOS):
+                error="Ese día ya está completo."
             else:
                 cur.execute("SELECT id FROM alumnos WHERE telefono=%s",(request.form["telefono"],))
                 alumno = cur.fetchone()
-
                 if not alumno:
-                    error = "Alumno no registrado."
+                    error="Alumno no registrado."
                 else:
-                    cur.execute("""
-                        SELECT 1 FROM asistencias
-                        WHERE fecha=%s AND turno=%s
-                    """,(fecha,turno))
-
+                    cur.execute("SELECT 1 FROM asistencias WHERE fecha=%s AND turno=%s",(fecha,turno))
                     if cur.fetchone():
-                        error = "Ese turno ya está ocupado."
+                        error="Ese turno ya está ocupado."
                     else:
-                        cur.execute("""
-                            SELECT 1 FROM asistencias
-                            WHERE alumno_id=%s AND fecha=%s
-                        """,(alumno[0],fecha))
-
+                        cur.execute("SELECT 1 FROM asistencias WHERE alumno_id=%s AND fecha=%s",(alumno[0],fecha))
                         if cur.fetchone():
-                            error = "El alumno ya tiene un turno ese día."
+                            error="El alumno ya tiene un turno ese día."
                         else:
                             cur.execute("""
                                 INSERT INTO asistencias(alumno_id,fecha,turno)
@@ -168,16 +154,16 @@ def asistencia():
     <h1>Asistencia al Laboratorio</h1>
     <p style="color:red">{error}</p>
     <form method="post"
-      onsubmit="return confirm('¿Confirma asistencia al laboratorio?')">
+      onsubmit="return confirm('¿Confirma la asistencia al laboratorio en el día y horario elegido?\\n\\n• Recordar llevar las herramientas de uso personal (pinzas, flux, estaño, pegamento, etc).\\n• Respetar el horario elegido ya que luego hay otro alumno en el siguiente turno.\\n• Respetar normas de convivencia del laboratorio (orden y limpieza del puesto de trabajo).\\n• De no poder asistir dar aviso por WhatsApp para liberar el horario.')">
         <input name="telefono" placeholder="Teléfono" required>
         <input type="date" name="fecha" min="{hoy}" required>
         <select name="turno" required>{opciones}</select>
-        <button>Confirmar</button>
+        <button>Confirmar Turno</button>
     </form>
     """))
 
 # =========================
-# DASHBOARD (solo fechas futuras)
+# DASHBOARD
 # =========================
 @app.route("/dashboard")
 def dashboard():
@@ -197,19 +183,19 @@ def dashboard():
 
     data=defaultdict(dict)
     conteo=defaultdict(int)
-
     for r in rows:
         data[r[1]][r[2]] = (r[3]+" "+r[4], r[0])
         conteo[r[1]] += 1
 
-    html="<h2>Dashboard – Cupos por Día</h2>"
+    html = """
+    <h2>Dashboard – Asistencias</h2>
+    <a class="boton" href="/alumnos">👥 Alumnos registrados</a>
+    """
 
     for fecha in sorted(data.keys()):
         completo = conteo[fecha] >= len(TURNOS)
-        estado = " 🔒 DÍA COMPLETO" if completo else ""
-        html+=f"<h3>📅 {fecha}{estado}</h3><table>"
+        html+=f"<h3>📅 {fecha}{' 🔒 COMPLETO' if completo else ''}</h3><table>"
         html+="<tr><th>Turno</th><th>Estado</th><th>Acción</th></tr>"
-
         for t in TURNOS:
             if t in data[fecha]:
                 alumno, aid = data[fecha][t]
@@ -217,22 +203,54 @@ def dashboard():
                 <tr class='ocupado'>
                     <td>{t}</td>
                     <td>{alumno}</td>
-                    <td>
-                        <a class='eliminar'
-                           href='/eliminar-asistencia/{aid}'
-                           onclick="return confirm('¿Liberar este turno?')">🗑️</a>
-                    </td>
+                    <td><a class='eliminar' href='/eliminar-asistencia/{aid}'>🗑️</a></td>
                 </tr>
                 """
             else:
-                if completo:
-                    html+=f"<tr class='cerrado'><td>{t}</td><td colspan='2'>Cerrado</td></tr>"
-                else:
-                    html+=f"<tr class='libre'><td>{t}</td><td>Libre</td><td>-</td></tr>"
-
+                html+=f"<tr class='libre'><td>{t}</td><td>Libre</td><td>-</td></tr>"
         html+="</table>"
 
     return render_template_string(render_pagina(html))
+
+# =========================
+# LISTADO ALUMNOS + EXPORTAR
+# =========================
+@app.route("/alumnos")
+def alumnos():
+    if not es_admin():
+        return redirect("/login")
+
+    db=get_db();cur=db.cursor()
+    cur.execute("SELECT nombre,apellido,telefono,nivel FROM alumnos ORDER BY apellido")
+    filas=cur.fetchall();db.close()
+
+    html="<h2>Alumnos Registrados</h2><a class='boton' href='/exportar-alumnos'>📥 Exportar Excel</a>"
+    html+="<table><tr><th>Nombre</th><th>Apellido</th><th>Teléfono</th><th>Nivel</th></tr>"
+    for f in filas:
+        html+=f"<tr><td>{f[0]}</td><td>{f[1]}</td><td>{f[2]}</td><td>{f[3]}</td></tr>"
+    html+="</table>"
+
+    return render_template_string(render_pagina(html))
+
+@app.route("/exportar-alumnos")
+def exportar_alumnos():
+    if not es_admin():
+        return redirect("/login")
+
+    db=get_db();cur=db.cursor()
+    cur.execute("SELECT nombre,apellido,telefono,nivel FROM alumnos ORDER BY apellido")
+    filas=cur.fetchall();db.close()
+
+    def generar():
+        yield "Nombre,Apellido,Telefono,Nivel\n"
+        for f in filas:
+            yield ",".join(f) + "\n"
+
+    return Response(
+        generar(),
+        mimetype="text/csv",
+        headers={"Content-Disposition":"attachment;filename=alumnos.csv"}
+    )
 
 # =========================
 # ELIMINAR ASISTENCIA

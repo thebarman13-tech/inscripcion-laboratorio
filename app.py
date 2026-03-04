@@ -78,7 +78,7 @@ BASE_HTML = """
 body{
   margin:0;
   background:var(--bg-main);
-  font-family:Inter, Arial, sans-serif;
+  font-family:Arial, sans-serif;
   color:var(--text-main);
 }
 
@@ -88,7 +88,6 @@ body{
   width:100%;
   background:var(--bg-header);
   border-bottom:1px solid var(--border);
-  z-index:10;
 }
 
 .header-inner{
@@ -97,7 +96,6 @@ body{
   padding:16px 24px;
   display:flex;
   justify-content:space-between;
-  align-items:center;
 }
 
 .logo{
@@ -112,9 +110,7 @@ body{
   text-decoration:none;
 }
 
-.nav a:hover{
-  color:var(--primary);
-}
+.nav a:hover{color:var(--primary)}
 
 .container{
   max-width:1200px;
@@ -160,44 +156,14 @@ button:hover{opacity:.9}
   font-weight:600;
 }
 
-table{
-  width:100%;
-  border-collapse:collapse;
-  margin-top:16px;
-}
-
-th,td{
-  border:1px solid var(--border);
-  padding:12px;
-  text-align:center;
-}
-
-th{background:#020617}
-
 .eliminar{
   color:var(--danger);
   font-weight:bold;
   text-decoration:none;
 }
 
-.grid-alumnos{
-  display:grid;
-  grid-template-columns:repeat(auto-fill,minmax(280px,1fr));
-  gap:20px;
-  margin-top:20px;
-}
-
-.card-alumno{
-  background:#020617;
-  border:1px solid var(--border);
-  border-radius:16px;
-  padding:20px;
-}
-
-.card-alumno h3{margin:0 0 8px 0}
-.card-alumno .tel{color:var(--text-muted);margin-bottom:10px}
-.card-alumno ul{padding-left:18px;color:var(--text-muted)}
-.card-alumno .sin{color:var(--warning);font-style:italic}
+.turno-libre{color:var(--success)}
+.turno-ocupado{color:var(--danger)}
 </style>
 """
 
@@ -254,24 +220,35 @@ def registro():
     """))
 
 # =========================
-# ASISTENCIA
+# ASISTENCIA CON CUPOS VISIBLES
 # =========================
 @app.route("/asistencia", methods=["GET","POST"])
 def asistencia():
-    hoy=date.today()
-    error=""; ok=""
+    hoy = date.today()
+    error = ""
+    ok = ""
+    fecha_seleccionada = request.form.get("fecha")
+    ocupados = set()
+
+    if fecha_seleccionada:
+        db = get_db()
+        cur = db.cursor()
+        cur.execute("SELECT turno FROM asistencias WHERE fecha=%s", (fecha_seleccionada,))
+        ocupados = {r[0] for r in cur.fetchall()}
+        db.close()
 
     if request.method=="POST":
-        fecha_str=request.form["fecha"]
-        fecha=datetime.strptime(fecha_str,"%Y-%m-%d").date()
-        turno=request.form["turno"]
+        fecha = datetime.strptime(fecha_seleccionada,"%Y-%m-%d").date()
+        turno = request.form["turno"]
 
         if fecha.weekday() not in DIAS_HABILITADOS:
             error="Solo martes, miércoles y jueves."
         elif fecha<=hoy:
             error="Los turnos deben sacarse con al menos 24 horas de anticipación."
-        elif fecha_str in FERIADOS:
+        elif fecha_seleccionada in FERIADOS:
             error="No se puede sacar turno en un feriado."
+        elif turno in ocupados:
+            error="Ese turno ya está ocupado."
         else:
             db=get_db(); cur=db.cursor()
             cur.execute("SELECT id FROM alumnos WHERE telefono=%s",(request.form["telefono"],))
@@ -279,175 +256,36 @@ def asistencia():
             if not alumno:
                 error="Alumno no registrado."
             else:
-                cur.execute("SELECT 1 FROM asistencias WHERE fecha=%s AND turno=%s",(fecha,turno))
-                if cur.fetchone():
-                    error="Ese turno ya está ocupado."
-                else:
-                    cur.execute("INSERT INTO asistencias(alumno_id,fecha,turno) VALUES(%s,%s,%s)",(alumno[0],fecha,turno))
-                    db.commit()
-                    ok=MENSAJE_CONFIRMACION
+                cur.execute(
+                    "INSERT INTO asistencias(alumno_id,fecha,turno) VALUES(%s,%s,%s)",
+                    (alumno[0],fecha,turno)
+                )
+                db.commit()
+                ok=MENSAJE_CONFIRMACION
             db.close()
 
-    opciones="".join(f"<option>{t}</option>" for t in TURNOS)
+    opciones=""
+    for t in TURNOS:
+        if t in ocupados:
+            opciones+=f"<option disabled class='turno-ocupado'>🔴 {t} (Ocupado)</option>"
+        else:
+            opciones+=f"<option class='turno-libre'>🟢 {t} (Disponible)</option>"
+
     return render_template_string(render_pagina(f"""
     <h1>Asistencia al Laboratorio</h1>
     <p style="color:var(--danger)">{error}</p>
     <p style="color:var(--success);white-space:pre-line">{ok}</p>
     <form method="post">
       <input name="telefono" placeholder="Teléfono" required>
-      <input type="date" name="fecha" required>
-      <select name="turno" required>{opciones}</select>
+      <input type="date" name="fecha" value="{fecha_seleccionada or ''}" required>
+      <select name="turno" required>
+        <option value="">Seleccionar turno</option>
+        {opciones}
+      </select>
       <button>Confirmar Turno</button>
     </form>
     """))
 
-# =========================
-# DASHBOARD
-# =========================
-@app.route("/dashboard")
-def dashboard():
-    if not es_admin(): return redirect("/login")
-
-    db=get_db(); cur=db.cursor()
-    cur.execute("""
-      SELECT s.id,s.fecha,s.turno,a.nombre,a.apellido
-      FROM asistencias s
-      JOIN alumnos a ON a.id=s.alumno_id
-      ORDER BY s.fecha DESC
-    """)
-    rows=cur.fetchall(); db.close()
-
-    dias=defaultdict(dict)
-    for aid,f,t,n,a in rows:
-        dias[f][t]=(f"{n} {a}",aid)
-
-    html="<h2>📊 Dashboard</h2><a class='boton' href='/alumnos'>👥 Historial de alumnos</a>"
-    for fecha in sorted(dias.keys(),reverse=True):
-        html+=f"<h3>📅 {fecha}</h3><table><tr><th>Turno</th><th>Alumno</th><th>Acción</th></tr>"
-        for t in TURNOS:
-            if t in dias[fecha]:
-                alumno,aid=dias[fecha][t]
-                html+=f"<tr><td>{t}</td><td>{alumno}</td><td><a class='eliminar' href='/eliminar-asistencia/{aid}'>🗑</a></td></tr>"
-            else:
-                html+=f"<tr><td>{t}</td><td>Libre</td><td>-</td></tr>"
-        html+="</table>"
-    return render_template_string(render_pagina(html))
-
-# =========================
-# ALUMNOS
-# =========================
-@app.route("/alumnos")
-def alumnos_menu():
-    if not es_admin(): return redirect("/login")
-    return render_template_string(render_pagina("""
-    <h2>📘 Historial de Alumnos</h2>
-    <a class="boton" href="/alumnos/Inicial">🟢 Inicial</a>
-    <a class="boton" href="/alumnos/Intermedio">🔵 Intermedio</a>
-    <a class="boton" href="/alumnos/Avanzado">🟣 Avanzado</a>
-    """))
-
-@app.route("/alumnos/<nivel>")
-def alumnos_por_nivel(nivel):
-    if not es_admin() or nivel not in NIVELES:
-        return redirect("/alumnos")
-
-    db=get_db(); cur=db.cursor()
-    cur.execute("""
-      SELECT a.id,a.nombre,a.apellido,a.telefono,s.fecha,s.turno
-      FROM alumnos a
-      LEFT JOIN asistencias s ON s.alumno_id=a.id
-      WHERE a.nivel=%s
-      ORDER BY a.apellido,a.nombre,s.fecha
-    """,(nivel,))
-    rows=cur.fetchall(); db.close()
-
-    alumnos=defaultdict(list); info={}
-    for aid,n,a,tel,f,t in rows:
-        info[aid]=(n,a,tel)
-        if f: alumnos[aid].append((f,t))
-
-    html=f"<h2>🎓 Nivel {nivel}</h2><a class='boton' href='/exportar/{nivel}'>📥 Descargar Excel</a><div class='grid-alumnos'>"
-    for aid,data in info.items():
-        n,a,tel=data; hist=alumnos.get(aid,[])
-        html+=f"<div class='card-alumno'><h3>{n} {a}</h3><div class='tel'>📞 {tel}</div>"
-        if hist:
-            html+="<ul>"+"".join(f"<li>{f} – {t}</li>" for f,t in hist)+"</ul>"
-        else:
-            html+="<div class='sin'>Sin asistencias</div>"
-        html+="</div>"
-    html+="</div>"
-    return render_template_string(render_pagina(html))
-
-@app.route("/exportar/<nivel>")
-def exportar_nivel(nivel):
-    if not es_admin() or nivel not in NIVELES:
-        return redirect("/login")
-
-    db = get_db()
-    cur = db.cursor()
-    cur.execute("""
-        SELECT 
-            a.id,
-            a.nombre,
-            a.apellido,
-            a.telefono,
-            a.nivel,
-            s.fecha,
-            s.turno
-        FROM alumnos a
-        LEFT JOIN asistencias s ON s.alumno_id = a.id
-        WHERE a.nivel = %s
-        ORDER BY a.apellido, a.nombre, s.fecha
-    """, (nivel,))
-    rows = cur.fetchall()
-    db.close()
-
-    # Agrupar por alumno
-    alumnos = {}
-
-    for aid, nombre, apellido, tel, nivel, fecha, turno in rows:
-        if aid not in alumnos:
-            alumnos[aid] = {
-                "nombre": nombre,
-                "apellido": apellido,
-                "telefono": tel,
-                "nivel": nivel,
-                "asistencias": []
-            }
-        if fecha:
-            alumnos[aid]["asistencias"].append(f"{fecha} ({turno})")
-
-    output = StringIO()
-    writer = csv.writer(output)
-
-    # Encabezados
-    writer.writerow([
-        "Nombre",
-        "Apellido",
-        "Teléfono",
-        "Nivel",
-        "Cantidad de Asistencias",
-        "Detalle de Asistencias"
-    ])
-
-    # Filas
-    for a in alumnos.values():
-        writer.writerow([
-            a["nombre"],
-            a["apellido"],
-            a["telefono"],
-            a["nivel"],
-            len(a["asistencias"]),
-            "; ".join(a["asistencias"])
-        ])
-
-    return Response(
-        output.getvalue(),
-        mimetype="text/csv",
-        headers={
-            "Content-Disposition": f"attachment;filename=alumnos_{nivel}.csv"
-        }
-    )
 # =========================
 # LOGIN
 # =========================
@@ -471,13 +309,5 @@ def logout():
     session.pop("admin",None)
     return redirect("/login")
 
-@app.route("/eliminar-asistencia/<int:aid>")
-def eliminar_asistencia(aid):
-    if not es_admin(): return redirect("/login")
-    db=get_db(); cur=db.cursor()
-    cur.execute("DELETE FROM asistencias WHERE id=%s",(aid,))
-    db.commit(); db.close()
-    return redirect("/dashboard")
-
 if __name__=="__main__":
-    app.run(host="0.0.0.0",port=int(os.environ.get("PORT",10000)))
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT",10000)))

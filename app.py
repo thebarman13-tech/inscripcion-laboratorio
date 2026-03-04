@@ -383,23 +383,71 @@ def exportar_nivel(nivel):
     if not es_admin() or nivel not in NIVELES:
         return redirect("/login")
 
-    db=get_db(); cur=db.cursor()
+    db = get_db()
+    cur = db.cursor()
     cur.execute("""
-      SELECT a.nombre,a.apellido,a.telefono,a.nivel,s.fecha,s.turno
-      FROM alumnos a
-      LEFT JOIN asistencias s ON s.alumno_id=a.id
-      WHERE a.nivel=%s
-      ORDER BY a.apellido,a.nombre
-    """,(nivel,))
-    rows=cur.fetchall(); db.close()
+        SELECT 
+            a.id,
+            a.nombre,
+            a.apellido,
+            a.telefono,
+            a.nivel,
+            s.fecha,
+            s.turno
+        FROM alumnos a
+        LEFT JOIN asistencias s ON s.alumno_id = a.id
+        WHERE a.nivel = %s
+        ORDER BY a.apellido, a.nombre, s.fecha
+    """, (nivel,))
+    rows = cur.fetchall()
+    db.close()
 
-    output=StringIO(); writer=csv.writer(output)
-    writer.writerow(["Nombre","Apellido","Teléfono","Nivel","Fecha","Turno"])
-    for r in rows: writer.writerow(r)
+    # Agrupar por alumno
+    alumnos = {}
 
-    return Response(output.getvalue(),mimetype="text/csv",
-      headers={"Content-Disposition":f"attachment;filename=alumnos_{nivel}.csv"})
+    for aid, nombre, apellido, tel, nivel, fecha, turno in rows:
+        if aid not in alumnos:
+            alumnos[aid] = {
+                "nombre": nombre,
+                "apellido": apellido,
+                "telefono": tel,
+                "nivel": nivel,
+                "asistencias": []
+            }
+        if fecha:
+            alumnos[aid]["asistencias"].append(f"{fecha} ({turno})")
 
+    output = StringIO()
+    writer = csv.writer(output)
+
+    # Encabezados
+    writer.writerow([
+        "Nombre",
+        "Apellido",
+        "Teléfono",
+        "Nivel",
+        "Cantidad de Asistencias",
+        "Detalle de Asistencias"
+    ])
+
+    # Filas
+    for a in alumnos.values():
+        writer.writerow([
+            a["nombre"],
+            a["apellido"],
+            a["telefono"],
+            a["nivel"],
+            len(a["asistencias"]),
+            "; ".join(a["asistencias"])
+        ])
+
+    return Response(
+        output.getvalue(),
+        mimetype="text/csv",
+        headers={
+            "Content-Disposition": f"attachment;filename=alumnos_{nivel}.csv"
+        }
+    )
 # =========================
 # LOGIN
 # =========================

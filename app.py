@@ -1,7 +1,7 @@
 import os
 import psycopg2
 from flask import Flask, request, redirect, render_template_string, session, Response
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 from collections import defaultdict
 import csv
 import io
@@ -98,7 +98,13 @@ th,td{border:1px solid #1e293b;padding:8px;text-align:center}
   margin:6px 6px 6px 0;
 }
 
-.eliminar{color:#ef4444;text-decoration:none}
+.eliminar{
+  display:inline-block;
+  margin-top:10px;
+  color:#ef4444;
+  text-decoration:none;
+  font-weight:600;
+}
 </style>
 
 <script>
@@ -233,7 +239,7 @@ def asistencia():
     """))
 
 # =========================
-# DASHBOARD (ASISTENCIAS DIRECTO)
+# DASHBOARD
 # =========================
 @app.route("/dashboard")
 def dashboard():
@@ -282,7 +288,7 @@ def eliminar(sid):
     return redirect("/dashboard")
 
 # =========================
-# ALUMNOS POR NIVEL (CARDS)
+# ALUMNOS POR NIVEL (CARDS + BORRAR)
 # =========================
 @app.route("/alumnos/<nivel>")
 def alumnos_por_nivel(nivel):
@@ -302,12 +308,7 @@ def alumnos_por_nivel(nivel):
     html+="<div class='grid-cards'>"
 
     for aid,n,a,tel in alumnos:
-        cur.execute("""
-          SELECT fecha, turno
-          FROM asistencias
-          WHERE alumno_id=%s
-          ORDER BY fecha
-        """,(aid,))
+        cur.execute("SELECT fecha, turno FROM asistencias WHERE alumno_id=%s ORDER BY fecha",(aid,))
         asist=cur.fetchall()
         hist="<br>".join(f"{f} · {tu}" for f,tu in asist) or "Sin asistencias"
 
@@ -316,12 +317,26 @@ def alumnos_por_nivel(nivel):
           <h4>{a} {n}</h4>
           <small>📞 {tel}</small>
           <p>{hist}</p>
+          <a class="eliminar" href="/eliminar_alumno/{aid}">🗑 Eliminar alumno</a>
         </div>
         """
 
     html+="</div>"
     db.close()
     return render_template_string(render_pagina(html))
+
+# =========================
+# ELIMINAR ALUMNO (ADMIN)
+# =========================
+@app.route("/eliminar_alumno/<int:aid>")
+def eliminar_alumno(aid):
+    if not es_admin(): return redirect("/login")
+
+    db=get_db(); cur=db.cursor()
+    cur.execute("DELETE FROM asistencias WHERE alumno_id=%s",(aid,))
+    cur.execute("DELETE FROM alumnos WHERE id=%s",(aid,))
+    db.commit(); db.close()
+    return redirect("/dashboard")
 
 # =========================
 # EXPORT CSV
@@ -356,7 +371,7 @@ def exportar(nivel):
     )
 
 # =========================
-# LOGIN
+# LOGIN / LOGOUT
 # =========================
 @app.route("/login", methods=["GET","POST"])
 def login():
@@ -378,5 +393,6 @@ def logout():
     session.pop("admin",None)
     return redirect("/login")
 
+# =========================
 if __name__=="__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT",10000)))

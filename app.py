@@ -11,7 +11,7 @@ app.secret_key = os.environ.get("SECRET_KEY", "clave-secreta")
 DATABASE_URL = os.environ.get("DATABASE_URL")
 
 # =========================
-# CONFIG
+# CONFIGURACIÓN
 # =========================
 TURNOS = [
     "12:00 a 14:00",
@@ -19,7 +19,7 @@ TURNOS = [
     "16:00 a 18:00",
 ]
 
-DIAS_HABILITADOS = (1, 2, 3)  # mar, mie, jue
+DIAS_HABILITADOS = (1, 2, 3)  # martes, miércoles, jueves
 
 FERIADOS = {
     "2026-01-01", "2026-03-24", "2026-04-02",
@@ -40,7 +40,7 @@ Recordar:
 """
 
 # =========================
-# UTILS
+# UTILIDADES
 # =========================
 def get_db():
     return psycopg2.connect(DATABASE_URL, sslmode="require")
@@ -49,7 +49,7 @@ def es_admin():
     return session.get("admin") is True
 
 # =========================
-# BASE HTML
+# BASE HTML (DARK MODE)
 # =========================
 BASE_HTML = """
 <style>
@@ -58,16 +58,46 @@ body{margin:0;background:#0f172a;color:#e5e7eb;font-family:Arial}
 .header-inner{max-width:1200px;margin:auto;padding:16px;display:flex;justify-content:space-between}
 .nav a{color:#e5e7eb;margin-left:18px;text-decoration:none}
 .container{max-width:1200px;margin:110px auto 40px;background:#020617;padding:30px;border-radius:16px}
+
 input,select,button{width:100%;padding:14px;margin-bottom:14px;border-radius:10px}
 button{background:#3b82f6;border:none;color:white;font-weight:600}
+
 .calendario{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px;margin-bottom:30px}
 .dia{border:1px solid #1e293b;border-radius:14px;padding:14px}
 .turno-btn{width:100%;padding:10px;margin-bottom:8px;border-radius:8px;font-weight:600}
 .libre{background:#052e16;color:#22c55e}
 .ocupado{background:#450a0a;color:#ef4444}
-table{width:100%;border-collapse:collapse}
+
+.grid-cards{
+  display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(260px,1fr));
+  gap:16px;
+  margin-top:20px;
+}
+
+.card{
+  background:#020617;
+  border:1px solid #1e293b;
+  border-radius:14px;
+  padding:16px;
+}
+
+.card h4{margin:0 0 8px}
+.card small{color:#94a3b8}
+
+table{width:100%;border-collapse:collapse;margin-top:20px}
 th,td{border:1px solid #1e293b;padding:8px;text-align:center}
-.boton{display:inline-block;padding:10px 16px;background:#3b82f6;color:white;border-radius:10px;text-decoration:none;margin:6px 0}
+
+.boton{
+  display:inline-block;
+  padding:10px 16px;
+  background:#3b82f6;
+  color:white;
+  border-radius:10px;
+  text-decoration:none;
+  margin:6px 6px 6px 0;
+}
+
 .eliminar{color:#ef4444;text-decoration:none}
 </style>
 
@@ -109,14 +139,14 @@ def registro():
               VALUES(%s,%s,%s,%s)
             """,(request.form["nombre"],request.form["apellido"],request.form["telefono"],request.form["nivel"]))
             db.commit()
-            msg="Alumno registrado."
+            msg="Alumno registrado correctamente."
         except:
-            msg="Alumno ya existente."
+            msg="El alumno ya existe."
         finally:
             db.close()
 
     return render_template_string(render_pagina(f"""
-    <h2>Registro Único</h2>
+    <h2>Registro Único de Alumno</h2>
     <p>{msg}</p>
     <form method="post">
       <input name="nombre" placeholder="Nombre" required>
@@ -159,7 +189,7 @@ def asistencia():
         turno=request.form["turno"]
 
         if fecha in FERIADOS:
-            error="Feriado."
+            error="No se puede reservar en feriado."
         elif turno in ocup[fecha]:
             error="Turno ocupado."
         else:
@@ -167,7 +197,10 @@ def asistencia():
             cur.execute("SELECT id FROM alumnos WHERE telefono=%s",(request.form["telefono"],))
             alu=cur.fetchone()
             if alu:
-                cur.execute("INSERT INTO asistencias(alumno_id,fecha,turno) VALUES(%s,%s,%s)",(alu[0],fecha,turno))
+                cur.execute(
+                    "INSERT INTO asistencias(alumno_id,fecha,turno) VALUES(%s,%s,%s)",
+                    (alu[0],fecha,turno)
+                )
                 db.commit()
                 ok=MENSAJE_CONFIRMACION
             else:
@@ -185,35 +218,71 @@ def asistencia():
         cal+="</div>"
 
     return render_template_string(render_pagina(f"""
-    <h2>Turnos</h2>
+    <h2>Disponibilidad de Turnos</h2>
     <div class="calendario">{cal}</div>
+
     <p style="color:red">{error}</p>
     <p style="color:lightgreen;white-space:pre-line">{ok}</p>
+
     <form method="post">
       <input name="telefono" placeholder="Teléfono" required>
       <input type="date" name="fecha" required>
       <select name="turno">{''.join(f"<option>{t}</option>" for t in TURNOS)}</select>
-      <button>Confirmar</button>
+      <button>Confirmar Asistencia</button>
     </form>
     """))
 
 # =========================
-# DASHBOARD (RESTAURADO)
+# DASHBOARD (ASISTENCIAS DIRECTO)
 # =========================
 @app.route("/dashboard")
 def dashboard():
     if not es_admin(): return redirect("/login")
 
-    return render_template_string(render_pagina("""
+    db=get_db(); cur=db.cursor()
+    cur.execute("""
+      SELECT s.id, s.fecha, s.turno, a.nombre, a.apellido
+      FROM asistencias s
+      JOIN alumnos a ON a.id = s.alumno_id
+      ORDER BY s.fecha DESC
+    """)
+    rows=cur.fetchall()
+    db.close()
+
+    dias=defaultdict(dict)
+    for sid,f,t,n,a in rows:
+        dias[f][t]=(f"{n} {a}",sid)
+
+    html="""
     <h2>Dashboard</h2>
-    <a class="boton" href="/dashboard/asistencias">📅 Asistencias</a><br>
-    <a class="boton" href="/alumnos/Inicial">📘 Alumnos Inicial</a><br>
-    <a class="boton" href="/alumnos/Intermedio">📗 Alumnos Intermedio</a><br>
-    <a class="boton" href="/alumnos/Avanzado">📕 Alumnos Avanzado</a>
-    """))
+    <a class="boton" href="/alumnos/Inicial">📘 Inicial</a>
+    <a class="boton" href="/alumnos/Intermedio">📗 Intermedio</a>
+    <a class="boton" href="/alumnos/Avanzado">📕 Avanzado</a>
+    """
+
+    for fecha in sorted(dias.keys(), reverse=True):
+        html+=f"<h3>{fecha}</h3>"
+        html+="<table><tr><th>Turno</th><th>Alumno</th><th></th></tr>"
+        for t in TURNOS:
+            if t in dias[fecha]:
+                alumno,sid=dias[fecha][t]
+                html+=f"<tr><td>{t}</td><td>{alumno}</td><td><a class='eliminar' href='/eliminar/{sid}'>🗑</a></td></tr>"
+            else:
+                html+=f"<tr><td>{t}</td><td>Libre</td><td>-</td></tr>"
+        html+="</table>"
+
+    return render_template_string(render_pagina(html))
+
+@app.route("/eliminar/<int:sid>")
+def eliminar(sid):
+    if not es_admin(): return redirect("/login")
+    db=get_db(); cur=db.cursor()
+    cur.execute("DELETE FROM asistencias WHERE id=%s",(sid,))
+    db.commit(); db.close()
+    return redirect("/dashboard")
 
 # =========================
-# ALUMNOS POR NIVEL
+# ALUMNOS POR NIVEL (CARDS)
 # =========================
 @app.route("/alumnos/<nivel>")
 def alumnos_por_nivel(nivel):
@@ -221,21 +290,36 @@ def alumnos_por_nivel(nivel):
 
     db=get_db(); cur=db.cursor()
     cur.execute("""
-      SELECT id,nombre,apellido,telefono
-      FROM alumnos WHERE nivel=%s
-      ORDER BY apellido,nombre
+      SELECT id, nombre, apellido, telefono
+      FROM alumnos
+      WHERE nivel=%s
+      ORDER BY apellido, nombre
     """,(nivel,))
     alumnos=cur.fetchall()
 
     html=f"<h2>Alumnos {nivel}</h2>"
-    html+=f"<a class='boton' href='/exportar/{nivel}'>⬇ Exportar CSV</a><hr>"
+    html+=f"<a class='boton' href='/exportar/{nivel}'>⬇ Exportar CSV</a>"
+    html+="<div class='grid-cards'>"
 
-    for aid,n,a,t in alumnos:
-        cur.execute("SELECT fecha,turno FROM asistencias WHERE alumno_id=%s ORDER BY fecha",(aid,))
+    for aid,n,a,tel in alumnos:
+        cur.execute("""
+          SELECT fecha, turno
+          FROM asistencias
+          WHERE alumno_id=%s
+          ORDER BY fecha
+        """,(aid,))
         asist=cur.fetchall()
-        hist="; ".join(f"{f} ({tu})" for f,tu in asist) or "Sin asistencias"
-        html+=f"<p><b>{a} {n}</b> 📞 {t}<br>{hist}</p><hr>"
+        hist="<br>".join(f"{f} · {tu}" for f,tu in asist) or "Sin asistencias"
 
+        html+=f"""
+        <div class="card">
+          <h4>{a} {n}</h4>
+          <small>📞 {tel}</small>
+          <p>{hist}</p>
+        </div>
+        """
+
+    html+="</div>"
     db.close()
     return render_template_string(render_pagina(html))
 
@@ -248,24 +332,28 @@ def exportar(nivel):
 
     db=get_db(); cur=db.cursor()
     cur.execute("""
-      SELECT nombre,apellido,telefono,nivel,id
-      FROM alumnos WHERE nivel=%s
-      ORDER BY apellido,nombre
+      SELECT id, nombre, apellido, telefono
+      FROM alumnos
+      WHERE nivel=%s
+      ORDER BY apellido, nombre
     """,(nivel,))
-    rows=cur.fetchall()
+    alumnos=cur.fetchall()
 
     output=io.StringIO()
     writer=csv.writer(output)
     writer.writerow(["Nombre","Apellido","Teléfono","Nivel","Asistencias"])
 
-    for n,a,t,niv,aid in rows:
-        cur.execute("SELECT fecha,turno FROM asistencias WHERE alumno_id=%s",(aid,))
+    for aid,n,a,tel in alumnos:
+        cur.execute("SELECT fecha, turno FROM asistencias WHERE alumno_id=%s",(aid,))
         asist="; ".join(f"{f} {tu}" for f,tu in cur.fetchall())
-        writer.writerow([n,a,t,niv,asist])
+        writer.writerow([n,a,tel,nivel,asist])
 
     db.close()
-    return Response(output.getvalue(), mimetype="text/csv",
-        headers={"Content-Disposition":f"attachment;filename=alumnos_{nivel}.csv"})
+    return Response(
+        output.getvalue(),
+        mimetype="text/csv",
+        headers={"Content-Disposition":f"attachment;filename=alumnos_{nivel}.csv"}
+    )
 
 # =========================
 # LOGIN

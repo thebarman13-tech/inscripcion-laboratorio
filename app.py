@@ -7,77 +7,99 @@ import csv
 import io
 
 app = Flask(__name__)
-app.secret_key = os.environ.get("SECRET_KEY", "clave-secreta")
+app.secret_key = os.environ.get("SECRET_KEY","clave-secreta")
 DATABASE_URL = os.environ.get("DATABASE_URL")
 
-# =========================
-# CONFIGURACIÓN
-# =========================
-
 TURNOS = [
-    "12:00 a 14:00",
-    "14:00 a 16:00",
-    "16:00 a 18:00",
+"12:00 a 14:00",
+"14:00 a 16:00",
+"16:00 a 18:00"
 ]
 
-DIAS_HABILITADOS = (1,2,3)
+DIAS_HABILITADOS=(1,2,3)
 
-FERIADOS = {
-    "2026-01-01","2026-03-24","2026-04-02",
-    "2026-05-01","2026-07-09","2026-12-25"
+FERIADOS={
+"2026-01-01","2026-03-24","2026-04-02",
+"2026-05-01","2026-07-09","2026-12-25"
 }
 
-USUARIO_ADMIN = "DRTECNO"
-PASSWORD_ADMIN = "laboratorio2026"
+USUARIO_ADMIN="DRTECNO"
+PASSWORD_ADMIN="laboratorio2026"
 
-MENSAJE_CONFIRMACION = """
+MENSAJE_CONFIRMACION="""
 ✅ Turno confirmado.
 
 Recordar:
-• Llevar herramientas personales.
-• Respetar el horario elegido.
-• Mantener orden y limpieza.
-• Avisar por WhatsApp si no puede asistir.
+• Llevar herramientas
+• Respetar el horario
+• Mantener orden
 """
 
-# =========================
-# UTILIDADES
-# =========================
-
 def get_db():
-    return psycopg2.connect(DATABASE_URL, sslmode="require")
+    return psycopg2.connect(DATABASE_URL,sslmode="require")
 
 def es_admin():
     return session.get("admin") is True
 
-# =========================
-# BASE HTML
-# =========================
 
 BASE_HTML="""
 <style>
-body{margin:0;background:#0f172a;color:#e5e7eb;font-family:Arial}
-.header{position:fixed;top:0;width:100%;background:#020617;border-bottom:1px solid #1e293b}
-.header-inner{max-width:1200px;margin:auto;padding:16px;display:flex;justify-content:space-between}
-.nav a{color:#e5e7eb;margin-left:18px;text-decoration:none}
 
-.container{max-width:1200px;margin:110px auto 40px;background:#020617;padding:30px;border-radius:16px}
+body{
+margin:0;
+background:#0f172a;
+color:#e5e7eb;
+font-family:Arial
+}
 
-input,select,button{width:100%;padding:14px;margin-bottom:14px;border-radius:10px}
-button{background:#3b82f6;border:none;color:white;font-weight:600}
+.header{
+position:fixed;
+top:0;
+width:100%;
+background:#020617;
+border-bottom:1px solid #1e293b
+}
 
-.calendario{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px;margin-bottom:30px}
-.dia{border:1px solid #1e293b;border-radius:14px;padding:14px}
+.header-inner{
+max-width:1200px;
+margin:auto;
+padding:16px;
+display:flex;
+justify-content:space-between
+}
 
-.turno-btn{width:100%;padding:10px;margin-bottom:8px;border-radius:8px;font-weight:600}
-.libre{background:#052e16;color:#22c55e}
-.ocupado{background:#450a0a;color:#ef4444}
+.nav a{
+color:white;
+margin-left:18px;
+text-decoration:none
+}
 
-.grid-cards{
-display:grid;
-grid-template-columns:repeat(auto-fit,minmax(260px,1fr));
+.container{
+max-width:1200px;
+margin:110px auto 40px;
+background:#020617;
+padding:30px;
+border-radius:16px
+}
+
+input,select,button{
+width:100%;
+padding:14px;
+margin-bottom:14px;
+border-radius:10px
+}
+
+button{
+background:#3b82f6;
+border:none;
+color:white;
+font-weight:600
+}
+
+.stats{
+display:flex;
 gap:16px;
-margin-top:20px
+margin-bottom:20px
 }
 
 .card{
@@ -87,19 +109,40 @@ border-radius:14px;
 padding:16px
 }
 
-.stats{
-display:flex;
-gap:16px;
-margin-bottom:20px
+.calendario{
+display:grid;
+grid-template-columns:repeat(auto-fit,minmax(220px,1fr));
+gap:16px
 }
 
-.stats .card{
-flex:1;
+.dia{
+border:1px solid #1e293b;
+padding:14px;
+border-radius:14px
+}
+
+.turno-btn{
+width:100%;
+padding:10px;
+margin-bottom:8px;
+border-radius:8px;
+font-weight:600
+}
+
+.libre{background:#052e16;color:#22c55e}
+.ocupado{background:#450a0a;color:#ef4444}
+
+table{
+width:100%;
+border-collapse:collapse;
+margin-top:20px
+}
+
+th,td{
+border:1px solid #1e293b;
+padding:8px;
 text-align:center
 }
-
-table{width:100%;border-collapse:collapse;margin-top:20px}
-th,td{border:1px solid #1e293b;padding:8px;text-align:center}
 
 .boton{
 display:inline-block;
@@ -112,41 +155,44 @@ margin:6px 6px 6px 0
 }
 
 .eliminar{
-display:inline-block;
-margin-top:10px;
 color:#ef4444;
 text-decoration:none;
 font-weight:600
 }
-</style>
 
-<script>
-function seleccionarTurno(fecha,turno){
-document.querySelector("input[name='fecha']").value=fecha
-document.querySelector("select[name='turno']").value=turno
-window.scrollTo({top:document.body.scrollHeight,behavior:'smooth'})
-}
-</script>
+</style>
 """
 
 def render_pagina(contenido):
-    return BASE_HTML+f"""
-    <div class="header">
-      <div class="header-inner">
-        <strong>🔧 DRTECNO · Laboratorio</strong>
-        <div class="nav">
-          <a href="/">Registro</a>
-          <a href="/asistencia">Asistencia</a>
-          {"<a href='/dashboard'>Dashboard</a> <a href='/logout'>Salir</a>" if es_admin() else "<a href='/login'>Admin</a>"}
-        </div>
-      </div>
-    </div>
-    <div class="container">{contenido}</div>
-    """
 
-# =========================
+    return BASE_HTML+f"""
+<div class="header">
+<div class="header-inner">
+
+<strong>🔧 DRTECNO · Laboratorio</strong>
+
+<div class="nav">
+
+<a href="/">Registro</a>
+<a href="/asistencia">Asistencia</a>
+
+{"<a href='/dashboard'>Dashboard</a> <a href='/logout'>Salir</a>" if es_admin() else "<a href='/login'>Admin</a>"}
+
+</div>
+
+</div>
+</div>
+
+<div class="container">
+
+{contenido}
+
+</div>
+"""
+
+# =================
 # REGISTRO
-# =========================
+# =================
 
 @app.route("/",methods=["GET","POST"])
 def registro():
@@ -156,6 +202,7 @@ def registro():
     if request.method=="POST":
 
         try:
+
             db=get_db()
             cur=db.cursor()
 
@@ -165,17 +212,19 @@ def registro():
             """,(request.form["nombre"],request.form["apellido"],request.form["telefono"],request.form["nivel"]))
 
             db.commit()
-            msg="Alumno registrado correctamente."
+
+            msg="Alumno registrado"
 
         except:
-            msg="El alumno ya existe."
+            msg="Alumno ya registrado"
 
         finally:
             db.close()
 
     return render_template_string(render_pagina(f"""
 
-<h2>Registro Único de Alumno</h2>
+<h2>Registro de Alumno</h2>
+
 <p>{msg}</p>
 
 <form method="post">
@@ -184,10 +233,12 @@ def registro():
 <input name="apellido" placeholder="Apellido" required>
 <input name="telefono" placeholder="Teléfono" required>
 
-<select name="nivel" required>
+<select name="nivel">
+
 <option>Inicial</option>
 <option>Intermedio</option>
 <option>Avanzado</option>
+
 </select>
 
 <button>Registrar</button>
@@ -196,14 +247,15 @@ def registro():
 
 """))
 
-# =========================
-# ASISTENCIAS
-# =========================
+# =================
+# ASISTENCIA
+# =================
 
 @app.route("/asistencia",methods=["GET","POST"])
 def asistencia():
 
     hoy=date.today()
+
     error=""
     ok=""
 
@@ -211,17 +263,22 @@ def asistencia():
     d=hoy+timedelta(days=1)
 
     while len(dias)<7:
+
         if d.weekday() in DIAS_HABILITADOS and d.isoformat() not in FERIADOS:
+
             dias.append(d)
+
         d+=timedelta(days=1)
 
     ocup=defaultdict(set)
 
     db=get_db()
     cur=db.cursor()
+
     cur.execute("SELECT fecha,turno FROM asistencias")
 
     for f,t in cur.fetchall():
+
         ocup[str(f)].add(t)
 
     db.close()
@@ -234,13 +291,12 @@ def asistencia():
         fecha_obj=datetime.strptime(fecha,"%Y-%m-%d").date()
 
         if fecha_obj<=hoy:
-            error="Las asistencias deben reservarse con al menos 24 hs de anticipación."
 
-        elif fecha in FERIADOS:
-            error="No se puede reservar en feriado."
+            error="Debe reservar con 24 hs"
 
         elif turno in ocup[fecha]:
-            error="Turno ocupado."
+
+            error="Turno ocupado"
 
         else:
 
@@ -248,6 +304,7 @@ def asistencia():
             cur=db.cursor()
 
             cur.execute("SELECT id FROM alumnos WHERE telefono=%s",(request.form["telefono"],))
+
             alu=cur.fetchone()
 
             if alu:
@@ -258,10 +315,12 @@ def asistencia():
                 """,(alu[0],fecha,turno))
 
                 db.commit()
+
                 ok=MENSAJE_CONFIRMACION
 
             else:
-                error="Alumno no registrado."
+
+                error="Alumno no registrado"
 
             db.close()
 
@@ -269,47 +328,51 @@ def asistencia():
 
     for d in dias:
 
-        cal+=f"<div class='dia'><h4>{d.strftime('%a %d/%m')}</h4>"
+        cal+=f"<div class='dia'><h4>{d}</h4>"
 
         for t in TURNOS:
 
             if t in ocup[str(d)]:
-                cal+=f"<button class='turno-btn ocupado' disabled>🔴 {t}</button>"
+
+                cal+=f"<button class='turno-btn ocupado'>{t}</button>"
+
             else:
-                cal+=f"<button class='turno-btn libre' onclick=\"seleccionarTurno('{d}','{t}')\">🟢 {t}</button>"
+
+                cal+=f"<button class='turno-btn libre'>{t}</button>"
 
         cal+="</div>"
 
     return render_template_string(render_pagina(f"""
 
-<h2>Disponibilidad de Turnos</h2>
+<h2>Turnos disponibles</h2>
 
 <div class="calendario">
+
 {cal}
+
 </div>
 
 <p style="color:red">{error}</p>
-<p style="color:lightgreen;white-space:pre-line">{ok}</p>
+<p style="color:lightgreen">{ok}</p>
 
 <form method="post">
 
 <input name="telefono" placeholder="Teléfono" required>
-
 <input type="date" name="fecha" required>
 
 <select name="turno">
 {''.join(f"<option>{t}</option>" for t in TURNOS)}
 </select>
 
-<button>Confirmar Asistencia</button>
+<button>Confirmar asistencia</button>
 
 </form>
 
 """))
 
-# =========================
+# =================
 # DASHBOARD
-# =========================
+# =================
 
 @app.route("/dashboard")
 def dashboard():
@@ -321,7 +384,7 @@ def dashboard():
     cur=db.cursor()
 
     cur.execute("SELECT COUNT(*) FROM alumnos")
-    total_alumnos=cur.fetchone()[0]
+    total=cur.fetchone()[0]
 
     cur.execute("SELECT COUNT(*) FROM asistencias WHERE fecha>=CURRENT_DATE")
     futuras=cur.fetchone()[0]
@@ -337,11 +400,13 @@ def dashboard():
     """)
 
     rows=cur.fetchall()
+
     db.close()
 
     dias=defaultdict(dict)
 
     for sid,f,t,n,a in rows:
+
         dias[f][t]=(f"{n} {a}",sid)
 
     html=f"""
@@ -350,32 +415,22 @@ def dashboard():
 
 <div class="stats">
 
-<div class="card">
-<h3>{total_alumnos}</h3>
-Alumnos registrados
-</div>
-
-<div class="card">
-<h3>{futuras}</h3>
-Próximas asistencias
-</div>
-
-<div class="card">
-<h3>{pasadas}</h3>
-Historial
-</div>
+<div class="card">Alumnos<br><h3>{total}</h3></div>
+<div class="card">Próximos<br><h3>{futuras}</h3></div>
+<div class="card">Historial<br><h3>{pasadas}</h3></div>
 
 </div>
 
-<a class="boton" href="/alumnos/Inicial">📘 Inicial</a>
-<a class="boton" href="/alumnos/Intermedio">📗 Intermedio</a>
-<a class="boton" href="/alumnos/Avanzado">📕 Avanzado</a>
+<a class="boton" href="/alumnos/Inicial">Inicial</a>
+<a class="boton" href="/alumnos/Intermedio">Intermedio</a>
+<a class="boton" href="/alumnos/Avanzado">Avanzado</a>
 
 """
 
     for fecha in sorted(dias.keys(),reverse=True):
 
         html+=f"<h3>{fecha}</h3>"
+
         html+="<table><tr><th>Turno</th><th>Alumno</th><th></th></tr>"
 
         for t in TURNOS:
@@ -393,60 +448,3 @@ Historial
         html+="</table>"
 
     return render_template_string(render_pagina(html))
-
-# =========================
-# ELIMINAR ASISTENCIA
-# =========================
-
-@app.route("/eliminar/<int:sid>")
-def eliminar(sid):
-
-    if not es_admin():
-        return redirect("/login")
-
-    db=get_db()
-    cur=db.cursor()
-
-    cur.execute("DELETE FROM asistencias WHERE id=%s",(sid,))
-    db.commit()
-    db.close()
-
-    return redirect("/dashboard")
-
-# =========================
-# LOGIN
-# =========================
-
-@app.route("/login",methods=["GET","POST"])
-def login():
-
-    if request.method=="POST":
-
-        if request.form["usuario"]==USUARIO_ADMIN and request.form["password"]==PASSWORD_ADMIN:
-            session["admin"]=True
-            return redirect("/dashboard")
-
-    return render_template_string(render_pagina("""
-
-<h2>Login Admin</h2>
-
-<form method="post">
-
-<input name="usuario">
-<input type="password" name="password">
-
-<button>Ingresar</button>
-
-</form>
-
-"""))
-
-@app.route("/logout")
-def logout():
-    session.pop("admin",None)
-    return redirect("/login")
-
-# =========================
-
-if __name__=="__main__":
-    app.run(host="0.0.0.0",port=int(os.environ.get("PORT",10000)))

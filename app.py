@@ -106,7 +106,8 @@ margin-bottom:20px
 background:#020617;
 border:1px solid #1e293b;
 border-radius:14px;
-padding:16px
+padding:16px;
+margin-bottom:16px
 }
 
 .calendario{
@@ -158,6 +159,12 @@ margin:6px 6px 6px 0
 color:#ef4444;
 text-decoration:none;
 font-weight:600
+}
+
+.grid{
+display:grid;
+grid-template-columns:repeat(auto-fit,minmax(260px,1fr));
+gap:16px
 }
 
 </style>
@@ -430,7 +437,6 @@ def dashboard():
     for fecha in sorted(dias.keys(),reverse=True):
 
         html+=f"<h3>{fecha}</h3>"
-
         html+="<table><tr><th>Turno</th><th>Alumno</th><th></th></tr>"
 
         for t in TURNOS:
@@ -438,7 +444,6 @@ def dashboard():
             if t in dias[fecha]:
 
                 alumno,sid=dias[fecha][t]
-
                 html+=f"<tr><td>{t}</td><td>{alumno}</td><td><a class='eliminar' href='/eliminar/{sid}'>🗑</a></td></tr>"
 
             else:
@@ -448,3 +453,77 @@ def dashboard():
         html+="</table>"
 
     return render_template_string(render_pagina(html))
+
+# =================
+# ALUMNOS POR NIVEL
+# =================
+
+@app.route("/alumnos/<nivel>")
+def alumnos_por_nivel(nivel):
+
+    if not es_admin():
+        return redirect("/login")
+
+    db=get_db()
+    cur=db.cursor()
+
+    cur.execute("""
+    SELECT id,nombre,apellido,telefono
+    FROM alumnos
+    WHERE nivel=%s
+    ORDER BY apellido,nombre
+    """,(nivel,))
+
+    alumnos=cur.fetchall()
+
+    html=f"<h2>Alumnos nivel {nivel}</h2>"
+    html+="<div class='grid'>"
+
+    for aid,n,a,tel in alumnos:
+
+        cur.execute("""
+        SELECT fecha,turno
+        FROM asistencias
+        WHERE alumno_id=%s
+        ORDER BY fecha DESC
+        """,(aid,))
+
+        asist=cur.fetchall()
+
+        historial="<br>".join(f"{f} · {t}" for f,t in asist) or "Sin asistencias"
+
+        html+=f"""
+        <div class="card">
+        <h3>{n} {a}</h3>
+        <p>📞 {tel}</p>
+        <p>{historial}</p>
+        <a class="eliminar" href="/eliminar_alumno/{aid}">Eliminar alumno</a>
+        </div>
+        """
+
+    html+="</div>"
+
+    db.close()
+
+    return render_template_string(render_pagina(html))
+
+# =================
+# ELIMINAR ALUMNO
+# =================
+
+@app.route("/eliminar_alumno/<int:aid>")
+def eliminar_alumno(aid):
+
+    if not es_admin():
+        return redirect("/login")
+
+    db=get_db()
+    cur=db.cursor()
+
+    cur.execute("DELETE FROM asistencias WHERE alumno_id=%s",(aid,))
+    cur.execute("DELETE FROM alumnos WHERE id=%s",(aid,))
+
+    db.commit()
+    db.close()
+
+    return redirect("/dashboard")
